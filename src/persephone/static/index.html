@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Persephone</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+  <script>
+    // Apply the saved theme before the first paint to avoid a flash.
+    try {
+      const theme = localStorage.getItem("persephone.theme");
+      if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+    } catch (_) { /* storage unavailable: follow the system */ }
+  </script>
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#view">Skip to content</a>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#/" aria-label="Persephone, library home">
+        <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 13c-2-5-6-8-11-8 1 5 4 8 9 9" fill="#7fb38f"/>
+          <path d="M34 13c2-5 6-8 11-8-1 5-4 8-9 9" fill="#5e9a72"/>
+          <path d="M26 12l2-5 4 4 4-4 2 5z" fill="#c23a4f"/>
+          <circle cx="32" cy="36" r="22" fill="#b8293f"/>
+          <path d="M18 30a16 16 0 0 1 12-11" stroke="#f2b8c0" stroke-width="3" stroke-linecap="round" fill="none"/>
+          <circle cx="27" cy="38" r="2.6" fill="#fbe3e6"/>
+          <circle cx="35" cy="34" r="2.6" fill="#fbe3e6"/>
+          <circle cx="38" cy="42" r="2.6" fill="#fbe3e6"/>
+          <circle cx="30" cy="46" r="2.6" fill="#fbe3e6"/>
+        </svg>
+        <span class="brand-name">Persephone</span>
+      </a>
+
+      <nav class="mainnav" aria-label="Sections">
+        <a href="#/" data-nav="library">Library</a>
+        <a href="#/favorites" data-nav="favorites">Favorites</a>
+        <a href="#/stats" data-nav="stats">Stats</a>
+        <a href="#/data" data-nav="data">Backup</a>
+      </nav>
+
+      <div class="topbar-actions">
+        <button type="button" class="btn btn-accent" id="add-book" aria-label="Add book" title="Add book (n)">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Add book</span>
+        </button>
+        <button type="button" class="btn btn-icon btn-ghost-light" id="theme-toggle" aria-label="Switch theme" title="Switch theme">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="view" tabindex="-1">
+    <p class="loading">Opening the library…</p>
+  </main>
+
+  <footer class="footer">
+    <span>Persephone <span id="app-version"></span></span>
+    <span aria-hidden="true">·</span>
+    <a href="/docs" target="_blank" rel="noopener">API docs</a>
+  </footer>
+
+  <!-- Add / edit a book -->
+  <dialog id="book-dialog" class="dialog" aria-labelledby="book-dialog-title">
+    <form id="book-form" method="dialog" novalidate>
+      <header class="dialog-head">
+        <h2 id="book-dialog-title">Add a book</h2>
+        <button type="button" class="btn btn-icon btn-ghost" data-close aria-label="Close">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+
+      <div class="dialog-body form-grid">
+        <div class="field span-2 isbn-field">
+          <label for="f-isbn">ISBN</label>
+          <div class="input-row">
+            <input id="f-isbn" name="isbn" inputmode="numeric" autocomplete="off" placeholder="978…">
+            <button type="button" class="btn btn-secondary" id="isbn-lookup">Look up</button>
+          </div>
+          <p class="hint" id="isbn-hint">Type an ISBN and look it up to fill in the details.</p>
+        </div>
+
+        <div class="field span-2">
+          <label for="f-title">Title <span class="req" aria-hidden="true">*</span></label>
+          <input id="f-title" name="title" required maxlength="500">
+        </div>
+        <div class="field span-2">
+          <label for="f-subtitle">Subtitle</label>
+          <input id="f-subtitle" name="subtitle" maxlength="500">
+        </div>
+        <div class="field span-2">
+          <label for="f-authors">Authors</label>
+          <input id="f-authors" name="authors" list="authors-list" placeholder="Separate several with commas">
+          <datalist id="authors-list"></datalist>
+        </div>
+        <div class="field">
+          <label for="f-series">Series</label>
+          <input id="f-series" name="series" maxlength="255">
+        </div>
+        <div class="field">
+          <label for="f-series-index">Number in series</label>
+          <input id="f-series-index" name="series_index" type="number" min="0" step="0.5">
+        </div>
+        <div class="field">
+          <label for="f-publisher">Publisher</label>
+          <input id="f-publisher" name="publisher" maxlength="255">
+        </div>
+        <div class="field">
+          <label for="f-year">Year</label>
+          <input id="f-year" name="published_year" type="number" min="-3000" max="3000">
+        </div>
+        <div class="field">
+          <label for="f-pages">Pages</label>
+          <input id="f-pages" name="pages" type="number" min="1">
+        </div>
+        <div class="field">
+          <label for="f-language">Language</label>
+          <input id="f-language" name="language" maxlength="50">
+        </div>
+        <div class="field span-2">
+          <label for="f-tags">Tags</label>
+          <input id="f-tags" name="tags" placeholder="mythology, poetry…">
+        </div>
+        <div class="field span-2">
+          <label for="f-cover">Cover image URL</label>
+          <input id="f-cover" name="cover_url" type="url" placeholder="https://…">
+        </div>
+        <div class="field span-2">
+          <label for="f-description">Description</label>
+          <textarea id="f-description" name="description" rows="3"></textarea>
+        </div>
+
+        <fieldset class="span-2 new-only">
+          <legend>Your copy</legend>
+          <div class="form-grid">
+            <div class="field">
+              <label for="f-status">Status</label>
+              <select id="f-status" name="status"></select>
+            </div>
+            <label class="check">
+              <input type="checkbox" name="favorite" id="f-favorite"> Favorite
+            </label>
+            <label class="check span-2">
+              <input type="checkbox" name="owned" id="f-owned"> I own a copy
+            </label>
+            <div class="field owned-only">
+              <label for="f-format">Format</label>
+              <select id="f-format" name="format"></select>
+            </div>
+            <div class="field owned-only">
+              <label for="f-location">Shelf / location</label>
+              <input id="f-location" name="location" maxlength="255">
+            </div>
+          </div>
+        </fieldset>
+
+        <p class="form-error span-2" role="alert" hidden></p>
+      </div>
+
+      <footer class="dialog-foot">
+        <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save book</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Add / edit a copy -->
+  <dialog id="copy-dialog" class="dialog dialog-sm" aria-labelledby="copy-dialog-title">
+    <form id="copy-form" method="dialog" novalidate>
+      <header class="dialog-head">
+        <h2 id="copy-dialog-title">Add a copy</h2>
+        <button type="button" class="btn btn-icon btn-ghost" data-close aria-label="Close">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="dialog-body form-grid">
+        <div class="field">
+          <label for="c-owner">Owner</label>
+          <input id="c-owner" name="owner" list="owners-list" maxlength="100" required>
+          <datalist id="owners-list"></datalist>
+        </div>
+        <div class="field">
+          <label for="c-format">Format</label>
+          <select id="c-format" name="format"></select>
+        </div>
+        <div class="field">
+          <label for="c-location">Shelf / location</label>
+          <input id="c-location" name="location" maxlength="255">
+        </div>
+        <div class="field">
+          <label for="c-acquired">Acquired on</label>
+          <input id="c-acquired" name="acquired_on" type="date">
+        </div>
+        <div class="field span-2">
+          <label for="c-lent">Lent to</label>
+          <input id="c-lent" name="lent_to" maxlength="100" placeholder="Nobody, it's on the shelf">
+        </div>
+        <div class="field span-2">
+          <label for="c-notes">Notes</label>
+          <textarea id="c-notes" name="notes" rows="2" placeholder="Signed, first edition, coffee stain on p. 42…"></textarea>
+        </div>
+        <p class="form-error span-2" role="alert" hidden></p>
+      </div>
+      <footer class="dialog-foot">
+        <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save copy</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Confirmation -->
+  <dialog id="confirm-dialog" class="dialog dialog-sm" aria-labelledby="confirm-title">
+    <form method="dialog">
+      <div class="dialog-body">
+        <h2 id="confirm-title">Are you sure?</h2>
+        <p id="confirm-text"></p>
+      </div>
+      <footer class="dialog-foot">
+        <button value="cancel" class="btn btn-ghost">Cancel</button>
+        <button value="ok" class="btn btn-danger" id="confirm-ok">Delete</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
