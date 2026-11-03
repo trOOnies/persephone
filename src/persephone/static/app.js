@@ -286,6 +286,8 @@ async function route() {
       await renderStats();
     } else if (section === "data") {
       await renderBackup();
+    } else if (section === "help") {
+      renderHelp();
     } else {
       setNav(null);
       view.dataset.view = "missing";
@@ -1032,6 +1034,124 @@ function hbarsHtml(items, hrefFor = null) {
       <span class="hbar-track"><span class="hbar-fill" style="display:block;width:${(i.count / max) * 100}%"></span></span>
       <span class="hbar-value">${i.count}</span>
     </li>`).join("")}</ul>`;
+}
+
+// -------------------------------------------------------------------- help --
+
+function renderHelp() {
+  setNav("help");
+  setTitle("Help");
+  view.dataset.view = "help";
+  view.innerHTML = `
+    <div class="help">
+      <header class="help-hero panel">
+        <img class="help-logo" src="/static/favicon.svg" alt="" width="72" height="72">
+        <div>
+          <h1>Welcome to Persephone 🌿</h1>
+          <p class="lede">Your personal home for <mark>every book you own, read, or dream of reading</mark>.
+          No accounts, no fuss: everything stays on your computer.</p>
+          <span class="ornament" aria-hidden="true"></span>
+        </div>
+      </header>
+
+      <nav class="help-toc panel" aria-label="On this page">
+        <strong>Jump to:</strong>
+        <a href="#help-start">🚀 Getting started</a>
+        <a href="#help-reading">📖 Tracking your reading</a>
+        <a href="#help-copies">📚 Copies &amp; lending</a>
+        <a href="#help-find">🔎 Finding books</a>
+        <a href="#help-stats">📊 Stats</a>
+        <a href="#help-backup">💾 Backups</a>
+        <a href="#help-tips">✨ Handy tricks</a>
+      </nav>
+
+      <section class="help-section panel" id="help-start">
+        <h2>🚀 Getting started: add your first book</h2>
+        <ol class="help-steps">
+          <li>Click the <span class="help-btn">＋ Add book</span> button at the top right.</li>
+          <li>Got the book nearby? Type the <strong>ISBN</strong> (the number above the barcode) and press
+            <span class="help-btn">Look up</span>. ✨ The title, author, cover and more <mark>fill themselves in</mark>.</li>
+          <li>No ISBN? No problem. Just type the <strong>title</strong>. It's the only thing you <em>must</em> fill in.</li>
+          <li>Tick <strong>“I own a copy”</strong> if it's on your shelf, then press <span class="help-btn">Save book</span>. 🎉</li>
+        </ol>
+        <p class="help-callout tip">💡 <strong>Tip:</strong> books you <em>don't</em> own yet go to your
+          <mark>wishlist</mark> automatically. Perfect for “I want to buy this one”.</p>
+      </section>
+
+      <section class="help-section panel" id="help-reading">
+        <h2>📖 Tracking your reading</h2>
+        <p>Click any book to open its page. There you can:</p>
+        <ul class="help-list">
+          <li>🏷️ Pick a <strong>status</strong>:
+            <span class="pill">To read</span> <span class="pill status-reading">Reading</span>
+            <span class="pill status-read">Read</span> <span class="pill status-abandoned">Abandoned</span>.
+            The <mark>start and finish dates are filled in for you</mark> when you start or finish a book.</li>
+          <li>⭐ Give it a <strong>rating</strong> by clicking the stars. Half stars work too: click the left half of a star.</li>
+          <li>❤️ Press <span class="help-btn">Add to favorites</span> to keep it on the <strong>Favorites</strong> tab.</li>
+          <li>📝 Write a <strong>review or notes</strong>, then press <span class="help-btn">Save notes</span>.</li>
+          <li>✏️ Fix any detail (title, tags, cover…) with <span class="help-btn">Edit</span>.</li>
+        </ul>
+      </section>
+
+      <section class="help-section panel" id="help-copies">
+        <h2>📚 Copies &amp; lending</h2>
+        <p>Sharing a home library? Each book can have <mark>several copies, each with its own owner</mark>:
+          your paperback, someone else's e-book, an audiobook…</p>
+        <ul class="help-list">
+          <li>➕ On a book's page, press <span class="help-btn">Add copy</span> and choose who owns it,
+            the format and where it's kept (“living room shelf”, “Kindle”…).</li>
+          <li>🤝 Lent a book to a friend? Edit the copy and fill in <strong>“Lent to”</strong>.
+            It gets a <span class="pill lent">Lent</span> badge, so you'll <mark>never forget who has it</mark>.</li>
+          <li>↩️ When it comes back, press the <strong>return</strong> arrow next to the copy.</li>
+        </ul>
+      </section>
+
+      <section class="help-section panel" id="help-find">
+        <h2>🔎 Finding books</h2>
+        <ul class="help-list">
+          <li>🔤 The <strong>search box</strong> looks through titles, authors, series, publishers and ISBNs.</li>
+          <li>🎛️ Narrow the list by <strong>status</strong>, <strong>owned / wishlist / lent out</strong>,
+            <strong>owner</strong> or <strong>tag</strong>.</li>
+          <li>↕️ Change the <strong>order</strong>: title, author, rating, year, recently added…</li>
+          <li>🖼️ Switch between <span class="help-btn">Covers</span> and <span class="help-btn">List</span> views.</li>
+          <li>👤 Click an author's name or a tag to see <mark>all their books</mark>.</li>
+        </ul>
+        <p class="help-callout">🔖 Your filters are part of the page address, so you can <strong>bookmark</strong>
+          a search (say, “unread fantasy”) and come back to it any time.</p>
+      </section>
+
+      <section class="help-section panel" id="help-stats">
+        <h2>📊 Stats</h2>
+        <p>The <strong>Stats</strong> tab shows your reading life at a glance: how many books you've read,
+          <mark>books finished per year</mark>, how you rate them, your top authors and tags, and who owns what.</p>
+      </section>
+
+      <section class="help-section panel" id="help-backup">
+        <h2>💾 Backups: keep your library safe</h2>
+        <ul class="help-list">
+          <li>📤 On the <strong>Backup</strong> tab, press <span class="help-btn">Download JSON</span>
+            to save <mark>your whole library in one file</mark>. Keep it somewhere safe, like a USB drive or cloud folder.</li>
+          <li>👥 Choose <strong>“Only &lt;name&gt;'s copies”</strong> to give someone just their part of a shared library.</li>
+          <li>📥 To restore, drop that file on the <strong>Import</strong> box. Books you already have are updated, nothing is duplicated.</li>
+        </ul>
+        <p class="help-callout warn">⚠️ <strong>Do this every now and then!</strong> If the computer breaks,
+          a recent backup is <mark>the only way to get your library back</mark>.</p>
+        <p class="help-callout">📦 Coming from <strong>Goodreads</strong> or a spreadsheet? Those can be brought in too.
+          Ask whoever set up Persephone for you to run the import.</p>
+      </section>
+
+      <section class="help-section panel" id="help-tips">
+        <h2>✨ Handy tricks</h2>
+        <ul class="help-list">
+          <li>⌨️ Press <kbd>/</kbd> to jump straight to the search box.</li>
+          <li>⌨️ Press <kbd>N</kbd> to add a new book.</li>
+          <li>🌙 Prefer dark screens? The <strong>moon button</strong> at the top switches between light and dark.</li>
+          <li>🏠 Click the <strong>Persephone</strong> logo at any time to go back to your library.</li>
+        </ul>
+      </section>
+
+      <p class="help-outro">Happy reading! 📚🌸</p>
+    </div>`;
 }
 
 // ------------------------------------------------------------------ backup --

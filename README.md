@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/persephone/static/favicon.svg" alt="Persephone logo: a pomegranate with laurel leaves" width="120">
+</p>
+
 # persephone
 
 Webapp for managing a collection of books: what you own (and who owns each
@@ -36,6 +40,8 @@ are at <http://127.0.0.1:8000/docs>.
 - **ISBN lookup** on [Open Library](https://openlibrary.org) to fill in the
   add-book form, plus Open Library covers for books that have an ISBN.
   Turn both off with `PERSEPHONE_OPENLIBRARY=0`.
+- **Help** page written for non-technical users, plus an **API** tab that opens
+  the interactive API docs.
 - Light and dark themes (follows the system, with a toggle). Keyboard
   shortcuts: `/` focuses the search box, `n` adds a book.
 
