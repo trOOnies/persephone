@@ -327,11 +327,19 @@ main:focus { outline: none; }
   display: flex;
   gap: 8px;
   justify-content: center;
-  padding: 18px 16px 24px;
+  padding: 18px 16px 8px;
   color: var(--ink-muted);
   font-size: 0.85rem;
   border-top: 1px solid var(--line);
 }
+
+.site-footer {
+  padding: 0 16px 24px;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.site-footer p { margin: 2px 0; }
 
 .loading, .empty {
   color: var(--ink-muted);
