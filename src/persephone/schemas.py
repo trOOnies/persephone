@@ -1,0 +1,290 @@
+"""Pydantic schemas: request validation and response shapes."""
+
+from __future__ import annotations
+
+import datetime as dt
+from enum import Enum
+from typing import Annotated, Any
+
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+from persephone import isbn as isbn_utils
+
+
+class Status(str, Enum):
+    TO_READ = "to_read"
+    READING = "reading"
+    READ = "read"
+    ABANDONED = "abandoned"
+
+
+class Format(str, Enum):
+    HARDCOVER = "hardcover"
+    PAPERBACK = "paperback"
+    EBOOK = "ebook"
+    AUDIOBOOK = "audiobook"
+    OTHER = "other"
+
+
+def _blank_to_none(value: Any) -> Any:
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+OptStr = Annotated[str | None, BeforeValidator(_blank_to_none)]
+
+
+def _clean_names(values: list[str]) -> list[str]:
+    """Strip names, drop blanks and case-insensitive duplicates, keep order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in values:
+        name = " ".join(str(raw).split())
+        if name and name.casefold() not in seen:
+            seen.add(name.casefold())
+            result.append(name)
+    return result
+
+
+def _validate_rating(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if not 0.5 <= value <= 5 or (value * 2) != int(value * 2):
+        raise ValueError("rating must be between 0.5 and 5, in steps of 0.5")
+    return float(value)
+
+
+def _validate_isbn(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = isbn_utils.normalize(value)
+    if normalized is None:
+        raise ValueError("not a valid ISBN-10 or ISBN-13")
+    return normalized
+
+
+# ------------------------------------------------------------------ copies ---
+
+
+class CopyBase(BaseModel):
+    format: Format = Format.PAPERBACK
+    location: OptStr = Field(default=None, max_length=255)
+    acquired_on: dt.date | None = None
+    lent_to: OptStr = Field(default=None, max_length=100)
+    notes: OptStr = None
+
+
+class CopyCreate(CopyBase):
+    owner: OptStr = Field(default=None, max_length=100, description="Defaults to the app owner")
+
+
+class CopyUpdate(BaseModel):
+    owner: OptStr = Field(default=None, max_length=100)
+    format: Format | None = None
+    location: OptStr = Field(default=None, max_length=255)
+    acquired_on: dt.date | None = None
+    lent_to: OptStr = Field(default=None, max_length=100)
+    notes: OptStr = None
+
+    @field_validator("owner", "format")
+    @classmethod
+    def _not_null(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("cannot be empty")
+        return value
+
+
+class CopyOut(CopyBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    book_id: int
+    owner: str
+
+
+# ------------------------------------------------------------------- books ---
+
+
+class _BookFields(BaseModel):
+    """Fields shared by creation and partial updates (all optional here)."""
+
+    subtitle: OptStr = Field(default=None, max_length=500)
+    isbn: OptStr = None
+    publisher: OptStr = Field(default=None, max_length=255)
+    published_year: int | None = Field(default=None, ge=-3000, le=3000)
+    pages: int | None = Field(default=None, ge=1, le=100_000)
+    language: OptStr = Field(default=None, max_length=50)
+    description: OptStr = None
+    cover_url: OptStr = Field(default=None, max_length=1000)
+    series: OptStr = Field(default=None, max_length=255)
+    series_index: float | None = Field(default=None, ge=0)
+    rating: float | None = None
+    started_on: dt.date | None = None
+    finished_on: dt.date | None = None
+    review: OptStr = None
+
+    @field_validator("rating")
+    @classmethod
+    def _check_rating(cls, value: float | None) -> float | None:
+        return _validate_rating(value)
+
+    @field_validator("isbn")
+    @classmethod
+    def _check_isbn(cls, value: str | None) -> str | None:
+        return _validate_isbn(value)
+
+    @field_validator("cover_url")
+    @classmethod
+    def _check_cover_url(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith(("http://", "https://", "/")):
+            raise ValueError("cover_url must be an http(s) URL")
+        return value
+
+    @model_validator(mode="after")
+    def _check_dates(self):
+        if self.started_on and self.finished_on and self.finished_on < self.started_on:
+            raise ValueError("finished_on cannot be before started_on")
+        return self
+
+
+class BookCreate(_BookFields):
+    title: str = Field(min_length=1, max_length=500)
+    authors: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    status: Status = Status.TO_READ
+    favorite: bool = False
+    copies: list[CopyCreate] = Field(default_factory=list)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _strip_title(cls, value: Any) -> Any:
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+    @field_validator("authors", "tags")
+    @classmethod
+    def _names(cls, value: list[str]) -> list[str]:
+        return _clean_names(value)
+
+
+class BookUpdate(_BookFields):
+    """Partial update: only the fields that are sent are changed."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    authors: list[str] | None = None
+    tags: list[str] | None = None
+    status: Status | None = None
+    favorite: bool | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _strip_title(cls, value: Any) -> Any:
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+    @field_validator("title", "status", "favorite", "authors", "tags")
+    @classmethod
+    def _not_null(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("cannot be null")
+        return value
+
+    @field_validator("authors", "tags")
+    @classmethod
+    def _names(cls, value: list[str]) -> list[str]:
+        return _clean_names(value)
+
+
+class BookOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    subtitle: str | None
+    authors: list[str]
+    tags: list[str] = Field(validation_alias="tag_names")
+    isbn: str | None
+    publisher: str | None
+    published_year: int | None
+    pages: int | None
+    language: str | None
+    description: str | None
+    cover_url: str | None
+    series: str | None
+    series_index: float | None
+    status: Status
+    rating: float | None
+    favorite: bool
+    started_on: dt.date | None
+    finished_on: dt.date | None
+    review: str | None
+    owned: bool
+    copies: list[CopyOut]
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+class BookPage(BaseModel):
+    items: list[BookOut]
+    total: int
+    limit: int
+    offset: int
+
+
+# ------------------------------------------------------------------ others ---
+
+
+class NameCount(BaseModel):
+    name: str
+    count: int
+
+
+class YearCount(BaseModel):
+    year: int
+    count: int
+
+
+class Stats(BaseModel):
+    total_books: int
+    owned_books: int
+    total_copies: int
+    favorites: int
+    rated: int
+    average_rating: float | None
+    pages_read: int
+    by_status: dict[str, int]
+    rating_distribution: dict[str, int]
+    read_per_year: list[YearCount]
+    copies_by_owner: list[NameCount]
+    copies_by_format: dict[str, int]
+    lent_out: int
+    top_authors: list[NameCount]
+    top_tags: list[NameCount]
+
+
+class AppConfig(BaseModel):
+    version: str
+    default_owner: str
+    openlibrary: bool
+
+
+class ImportSummary(BaseModel):
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    errors: list[str] = Field(default_factory=list)
+
+    def merge(self, other: ImportSummary) -> ImportSummary:
+        return ImportSummary(
+            created=self.created + other.created,
+            updated=self.updated + other.updated,
+            unchanged=self.unchanged + other.unchanged,
+            errors=[*self.errors, *other.errors],
+        )
