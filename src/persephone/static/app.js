@@ -1231,7 +1231,6 @@ window.addEventListener("popstate", route);
   syncThemeButton();
   try {
     state.config = await api("/config");
-    $("#app-version").textContent = `v${state.config.version}`;
   } catch { /* keep the defaults */ }
   route();
 })();
