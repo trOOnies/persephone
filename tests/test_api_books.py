@@ -172,6 +172,32 @@ def test_list_default_sort_is_title(client, library):
     assert response.json()["total"] == 4
 
 
+def test_shelf_sort_puts_favorites_then_owned_first(client, library, add_book):
+    # Metamorphoses: favorite and owned; Circe: owned; the others neither.
+    add_book("Beowulf", favorite=True)  # a favorite that is not owned
+    add_book("Aeneid", copies=[{}])  # owned, not a favorite
+    shelf = client.get("/api/books", params={"sort": "shelf"})
+    assert titles(shelf) == [
+        "Beowulf",
+        "Metamorphoses",
+        "Aeneid",
+        "Circe",
+        "Anonymous Ballads",
+        "Dune",
+    ]
+    reverse = client.get("/api/books", params={"sort": "shelf", "order": "desc"})
+    assert titles(reverse) == [
+        "Metamorphoses",
+        "Beowulf",
+        "Circe",
+        "Aeneid",
+        "Dune",
+        "Anonymous Ballads",
+    ]
+    page = client.get("/api/books", params={"sort": "shelf", "limit": 2, "offset": 2})
+    assert titles(page) == ["Aeneid", "Circe"]
+
+
 @pytest.mark.parametrize(
     ("query", "expected"),
     [

@@ -7,7 +7,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from sqlalchemy import Select, delete, func, or_, select
+from sqlalchemy import Select, case, delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from persephone.models import Author, Book, BookAuthor, Copy, Publisher, Tag, book_tags, utcnow
@@ -57,7 +57,7 @@ PUBLISHER_FIELDS = ("origin", "year_created", "year_closed")
 PERSONAL_FIELDS = ("status", "rating", "favorite", "started_on", "finished_on", "review")
 COPY_FIELDS = ("owner", "format", "location", "acquired_on", "lent_to", "notes")
 
-SortKey = Literal["title", "author", "added", "updated", "rating", "year", "finished"]
+SortKey = Literal["shelf", "title", "author", "added", "updated", "rating", "year", "finished"]
 SORT_KEYS: tuple[str, ...] = SortKey.__args__  # type: ignore[attr-defined]
 
 
@@ -253,6 +253,11 @@ def _sort_columns(sort: str, descending: bool):
         .correlate(Book)
         .scalar_subquery()
     )
+    title = func.lower(Book.title)
+    if sort == "shelf":
+        # Favorites, then owned books, then the rest; A-Z (or Z-A) inside each group.
+        group = case((Book.favorite, 0), (Book.copies.any(), 1), else_=2)
+        return [group.asc(), title.desc() if descending else title.asc(), Book.id.asc()]
     column = {
         "title": func.lower(Book.title),
         "author": first_author,

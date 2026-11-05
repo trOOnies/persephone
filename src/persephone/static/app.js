@@ -9,6 +9,7 @@ const FORMATS = {
   other: "Other",
 };
 const SORTS = {
+  shelf: { label: "Favorites, owned, A–Z", order: "asc" },
   title: { label: "Title", order: "asc" },
   author: { label: "Author", order: "asc" },
   added: { label: "Recently added", order: "desc" },
@@ -17,6 +18,7 @@ const SORTS = {
   year: { label: "Year published", order: "desc" },
   finished: { label: "Recently finished", order: "desc" },
 };
+const DEFAULT_SORT = "shelf";
 const PAGE_SIZE = 50; // 10 columns x 5 rows on a full-width 1920px window
 
 // localStorage can throw (private windows, blocked storage): it only keeps conveniences.
@@ -398,7 +400,7 @@ function updateParams(mode, changes, { replace = false } = {}) {
 function bindLibraryToolbar(mode) {
   const search = $('input[name="q"]', view);
   search.addEventListener("input", debounce(() => updateParams(mode, { q: search.value.trim() }, { replace: true }), 250));
-  $("#filter-sort", view).addEventListener("change", (e) => updateParams(mode, { sort: e.target.value === "title" ? null : e.target.value, order: null }));
+  $("#filter-sort", view).addEventListener("change", (e) => updateParams(mode, { sort: e.target.value === DEFAULT_SORT ? null : e.target.value, order: null }));
   $("#filter-own", view).addEventListener("change", (e) => updateParams(mode, { own: e.target.value }));
   $("#filter-owner", view).addEventListener("change", (e) => updateParams(mode, { owner: e.target.value }));
   $("#filter-tag", view).addEventListener("change", (e) => updateParams(mode, { tag: e.target.value }));
@@ -427,7 +429,7 @@ function syncLayoutButtons() {
 function syncToolbar(params) {
   const search = $('input[name="q"]', view);
   if (document.activeElement !== search) search.value = params.get("q") || "";
-  $("#filter-sort", view).value = params.get("sort") || "title";
+  $("#filter-sort", view).value = SORTS[params.get("sort")] ? params.get("sort") : DEFAULT_SORT;
   $("#filter-own", view).value = params.get("own") || "";
   setSelectValue($("#filter-owner", view), params.get("owner") || "");
   setSelectValue($("#filter-tag", view), params.get("tag") || "");
@@ -465,7 +467,7 @@ function fillSelect(select, emptyLabel, items, selected) {
 }
 
 function apiQuery(mode, params, offset) {
-  const sort = SORTS[params.get("sort")] ? params.get("sort") : "title";
+  const sort = SORTS[params.get("sort")] ? params.get("sort") : DEFAULT_SORT;
   const own = params.get("own");
   return {
     q: params.get("q"),
@@ -1445,6 +1447,7 @@ function renderHelp() {
         <h2>🔎 Finding books</h2>
         <ul class="help-list">
           <li>🔤 The <strong>search box</strong> looks through titles, authors, series, publishers and ISBNs.</li>
+          <li>🔢 Books are listed with your <strong>favorites first</strong>, then the ones you own, then the rest, each in A–Z order. Pick another order in the menu next to the search box.</li>
           <li>🎛️ Narrow the list by <strong>status</strong>, <strong>owned / wishlist / lent out</strong>,
             <strong>owner</strong> or <strong>tag</strong>.</li>
           <li>↕️ Change the <strong>order</strong>: title, author, rating, year, recently added…</li>

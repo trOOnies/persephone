@@ -27,7 +27,9 @@ are at <http://127.0.0.1:8000/docs>.
 
 - **Library** with cover grid or list layout, search (title, author, series,
   publisher, ISBN), filters (status, owned / wishlist / lent out, owner, tag,
-  author) and sorting (title, author, added, rating, year, finished). The
+  author) and sorting. By default favorites come first, then owned books, then
+  the rest, each group A-Z (`sort=shelf`); title, author, added, rating, year
+  and finished are also available. The
   filters live in the URL, so back/forward and bookmarks work. 50 books per
   page (10 columns x 5 rows on a full-width 1920px window, 5 columns at half
   width), with the same pager above and below the books.
