@@ -2,6 +2,10 @@
 
 Understood formats:
 
+* **YAML library** (``books.yaml`` plus ``authors.yaml`` and ``publishers.yaml``):
+  the authors and publishers files map short ids to names and details (gender,
+  origin, years), and each book in ``books.yaml`` refers to them by id. See
+  :func:`import_yaml`.
 * **Goodreads export** (``goodreads_library_export.csv``): ratings, shelves,
   read dates, reviews and owned copies are all carried over. Series written in
   the title, like ``Dune (Dune Chronicles, #1)``, are split out.
@@ -29,6 +33,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+import yaml
 from sqlalchemy.orm import Session
 
 from persephone import isbn as isbn_utils
@@ -317,6 +322,110 @@ def generic_record(row: dict[str, Any], owner: str | None = None) -> dict[str, A
     }
 
 
+# ------------------------------------------------------------------- yaml ---
+
+BOOKS_FILE = "books.yaml"
+AUTHORS_FILE = "authors.yaml"
+PUBLISHERS_FILE = "publishers.yaml"
+YAML_FILES = (BOOKS_FILE, AUTHORS_FILE, PUBLISHERS_FILE)
+
+
+def _load_yaml(path: Path) -> Any:
+    if not path.is_file():
+        return None
+    try:
+        return yaml.safe_load(path.read_text("utf-8"))
+    except yaml.YAMLError as exc:
+        where = getattr(exc, "problem_mark", None)
+        line = f" at line {where.line + 1}" if where else ""
+        raise userdata.FormatError(f"{path.name}: invalid YAML{line}") from exc
+
+
+def _directory(payload: Any, filename: str) -> tuple[dict[str, str], list[tuple[str, Any]]]:
+    """Read ``authors.yaml`` / ``publishers.yaml``.
+
+    Each entry is either ``id: Name`` or ``id: {name: Name, <detail>: ...}``.
+    Returns the ``{id: name}`` mapping and the ``(label, details)`` of each entry.
+    """
+    if payload is None:
+        return {}, []
+    if not isinstance(payload, dict):
+        raise userdata.FormatError(f"{filename}: expected a mapping of id: name")
+    names: dict[str, str] = {}
+    details: list[tuple[str, Any]] = []
+    for key, value in payload.items():
+        name = _text(value.get("name")) if isinstance(value, dict) else _text(value)
+        if not name:
+            raise userdata.FormatError(f"{filename}: {key!r} has no name")
+        names[str(key)] = name
+        if isinstance(value, dict):
+            details.append((f"{filename} {key}", {**value, "name": name}))
+    return names, details
+
+
+def _lookup(ref: Any, names: dict[str, str], kind: str) -> str:
+    key = _text(ref)
+    if key is None or key not in names:
+        raise KeyError(f"unknown {kind} {ref!r}")
+    return names[key]
+
+
+def yaml_record(
+    item: dict[str, Any], authors: dict[str, str], publishers: dict[str, str]
+) -> dict[str, Any]:
+    """Replace the author and publisher ids of a ``books.yaml`` entry by their names."""
+    record = dict(item)
+    refs = record.get("authors", record.get("author"))
+    record.pop("author", None)
+    if refs is not None:
+        refs = refs if isinstance(refs, list) else [refs]
+        record["authors"] = [_lookup(ref, authors, "author") for ref in refs]
+    if record.get("publisher") is not None:
+        record["publisher"] = _lookup(record["publisher"], publishers, "publisher")
+    return record
+
+
+def import_yaml(session: Session, folder: Path, *, default_owner: str) -> ImportSummary:
+    """Import ``books.yaml``, resolving its author and publisher ids.
+
+    ``books.yaml`` is a list of books using the generic field names (``title``,
+    ``authors``, ``isbn``, ``status``, ``rating``, ``tags``, ``copies``...), where
+    ``authors`` is a list of ids from ``authors.yaml`` and ``publisher`` an id
+    from ``publishers.yaml``. A book with an unknown id is reported and skipped.
+    """
+    authors, author_details = _directory(_load_yaml(folder / AUTHORS_FILE), AUTHORS_FILE)
+    publishers, publisher_details = _directory(
+        _load_yaml(folder / PUBLISHERS_FILE), PUBLISHERS_FILE
+    )
+    books = _load_yaml(folder / BOOKS_FILE)
+    if books is None:
+        books = []
+    if not isinstance(books, list):
+        raise userdata.FormatError(f"{BOOKS_FILE}: expected a list of books")
+
+    summary = ImportSummary()
+    for number, item in enumerate(books, start=1):
+        source = f"{BOOKS_FILE} book {number}"
+        if not isinstance(item, dict):
+            summary.errors.append(f"{source}: expected a mapping of fields")
+            continue
+        try:
+            record = generic_record(yaml_record(item, authors, publishers), default_owner)
+        except KeyError as exc:
+            title = _text(item.get("title"))
+            summary.errors.append(f"{source}{f' ({title})' if title else ''}: {exc.args[0]}")
+            continue
+        part = userdata.import_data(
+            session, [record], default_owner=default_owner, overwrite_personal=False, source=source
+        )
+        part.errors = [error.replace(" #1", "", 1) for error in part.errors]
+        summary = summary.merge(part)
+    summary.errors += userdata.import_details(
+        session, authors=author_details, publishers=publisher_details
+    )
+    return summary
+
+
 # ------------------------------------------------------------------ files ---
 
 
@@ -385,9 +494,18 @@ def import_folder(session: Session, folder: Path, *, default_owner: str, out=Non
     files = sorted(
         p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in {".csv", ".json"}
     )
-    if not files:
-        print(f"No .csv or .json files found in {folder}", file=out)
+    has_yaml = any((folder / name).is_file() for name in YAML_FILES)
+    if not files and not has_yaml:
+        print(f"No {BOOKS_FILE}, .csv or .json files found in {folder}", file=out)
     summary = ImportSummary()
+    if has_yaml:
+        try:
+            part = import_yaml(session, folder, default_owner=default_owner)
+        except (UnicodeDecodeError, userdata.FormatError) as exc:
+            part = ImportSummary(errors=[str(exc)])
+        print(f"{BOOKS_FILE}: ", end="", file=out)
+        userdata.print_summary(part, out=out)
+        summary = summary.merge(part)
     for path in files:
         try:
             part = import_file(session, path, default_owner=default_owner)
@@ -402,7 +520,7 @@ def import_folder(session: Session, folder: Path, *, default_owner: str, out=Non
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m persephone.importer",
-        description="Import books from the .csv and .json files of a folder.",
+        description="Import books from books.yaml and the .csv and .json files of a folder.",
     )
     parser.add_argument("folder", nargs="?", default="info", help="folder to read (default: info)")
     parser.add_argument("--owner", help="owner of the imported copies (default: PERSEPHONE_OWNER)")

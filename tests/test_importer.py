@@ -330,7 +330,7 @@ def test_import_folder_reports_each_file(session, info, capsys):
 
 def test_import_empty_folder(session, info, capsys):
     importer.import_folder(session, info, default_owner="Me")
-    assert "No .csv or .json files" in capsys.readouterr().out
+    assert "No books.yaml, .csv or .json files" in capsys.readouterr().out
 
 
 def test_cli(tmp_path, info, capsys):
@@ -341,6 +341,189 @@ def test_cli(tmp_path, info, capsys):
     assert importer.main([str(info), "--db", str(db), "--owner", "Kore"]) == 0
     assert "Total: 0 created, 0 updated, 1 unchanged" in capsys.readouterr().out
     assert importer.main([str(tmp_path / "missing"), "--db", str(db)]) == 2
+
+
+# -------------------------------------------------------------------- yaml --
+
+
+def write_yaml_library(info, books, authors=None, publishers=None):
+    import yaml
+
+    (info / "books.yaml").write_text(yaml.safe_dump(books, allow_unicode=True), "utf-8")
+    if authors is not None:
+        (info / "authors.yaml").write_text(yaml.safe_dump(authors, allow_unicode=True), "utf-8")
+    if publishers is not None:
+        (info / "publishers.yaml").write_text(yaml.safe_dump(publishers), "utf-8")
+
+
+def test_yaml_import(session, info):
+    write_yaml_library(
+        info,
+        books=[
+            {
+                "title": "Good Omens",
+                "authors": ["pratchett", "gaiman"],
+                "publisher": "morrow",
+                "isbn": "0-441-17271-7",
+                "status": "read",
+                "rating": 4.5,
+                "favorite": True,
+                "tags": ["fantasy", "humor"],
+                "finished_on": dt.date(2020, 12, 30),
+                "copies": [
+                    {"owner": "Demeter", "format": "hardcover", "lent_to": "Hecate"},
+                    {"format": "ebook"},
+                ],
+            },
+            {"title": "Ficciones", "authors": "borges", "status": "leído"},
+        ],
+        authors={
+            "pratchett": "Terry Pratchett",
+            "gaiman": {"name": "Neil Gaiman"},
+            "borges": "Jorge Luis Borges",
+        },
+        publishers={"morrow": {"name": "William Morrow"}},
+    )
+    summary = importer.import_yaml(session, info, default_owner="Me")
+    assert (summary.created, summary.errors) == (2, [])
+
+    books = by_title(session)
+    omens = books["Good Omens"]
+    assert omens.authors == ["Terry Pratchett", "Neil Gaiman"]
+    assert omens.publisher == "William Morrow"
+    assert omens.isbn == "9780441172719"
+    assert (omens.status, omens.rating, omens.favorite) == ("read", 4.5, True)
+    assert omens.finished_on == dt.date(2020, 12, 30)
+    assert omens.tag_names == ["fantasy", "humor"]
+    assert [(c.owner, c.format, c.lent_to) for c in omens.copies] == [
+        ("Demeter", "hardcover", "Hecate"),
+        ("Me", "ebook", None),
+    ]
+    assert books["Ficciones"].authors == ["Jorge Luis Borges"]
+    assert books["Ficciones"].status == "read"
+    assert books["Ficciones"].copies == []
+
+    again = importer.import_yaml(session, info, default_owner="Me")
+    assert (again.created, again.unchanged) == (0, 2)
+
+
+def test_yaml_unknown_ids_are_reported(session, info):
+    write_yaml_library(
+        info,
+        books=[
+            {"title": "Known", "authors": ["ovid"]},
+            {"title": "Stranger", "authors": ["ovid", "nobody"]},
+            {"title": "Nowhere", "authors": ["ovid"], "publisher": "ghost"},
+            "not a book",
+            {"title": "", "authors": ["ovid"]},
+        ],
+        authors={"ovid": "Ovid"},
+    )
+    summary = importer.import_yaml(session, info, default_owner="Me")
+    assert summary.created == 1
+    assert summary.errors[:3] == [
+        "books.yaml book 2 (Stranger): unknown author 'nobody'",
+        "books.yaml book 3 (Nowhere): unknown publisher 'ghost'",
+        "books.yaml book 4: expected a mapping of fields",
+    ]
+    assert summary.errors[3].startswith("books.yaml book 5: title:")
+
+
+@pytest.mark.parametrize(
+    ("filename", "content", "message"),
+    [
+        ("books.yaml", "title: not a list\n", "books.yaml: expected a list of books"),
+        ("books.yaml", "- [unclosed\n", "books.yaml: invalid YAML at line 2"),
+        ("authors.yaml", "- Ovid\n", "authors.yaml: expected a mapping of id: name"),
+        ("publishers.yaml", "ace: {}\n", "publishers.yaml: 'ace' has no name"),
+    ],
+)
+def test_yaml_bad_files(session, info, filename, content, message):
+    (info / filename).write_text(content, "utf-8")
+    with pytest.raises(userdata.FormatError, match=message):
+        importer.import_yaml(session, info, default_owner="Me")
+
+
+def test_import_folder_reads_yaml_and_csv(session, info, capsys):
+    write_yaml_library(info, books=[{"title": "From YAML", "authors": ["a"]}], authors={"a": "A"})
+    write_csv(info / "more.csv", ["title"], [{"title": "From CSV"}])
+    summary = importer.import_folder(session, info, default_owner="Me")
+    out = capsys.readouterr().out
+    assert "books.yaml: 1 created" in out
+    assert "more.csv: 1 created" in out
+    assert summary.created == 2
+
+
+def test_import_folder_reports_broken_yaml(session, info, capsys):
+    (info / "authors.yaml").write_text("- nope\n", "utf-8")
+    summary = importer.import_folder(session, info, default_owner="Me")
+    assert summary.errors == ["authors.yaml: expected a mapping of id: name"]
+    assert "books.yaml: 0 created" in capsys.readouterr().out
+
+
+def test_yaml_author_and_publisher_details(session, info):
+    from persephone import services
+
+    write_yaml_library(
+        info,
+        books=[
+            {
+                "title": "The Name of the Rose",
+                "authors": ["eco"],
+                "publisher": "harcourt",
+                "original_title": "Il nome della rosa",
+                "original_language": "Italian",
+                "original_year": 1980,
+                "translator": "William Weaver",
+            },
+        ],
+        authors={
+            "eco": {
+                "name": "Umberto Eco",
+                "gender": "male",
+                "origin": "Italy",
+                "year_born": 1932,
+                "year_deceased": 2016,
+            },
+            "unused": {"name": "Nobody Yet", "year_born": 2000},
+            "broken": {"name": "Broken", "year_born": "soon"},
+        },
+        publishers={
+            "harcourt": {
+                "name": "Harcourt",
+                "origin": "United States",
+                "year_created": 1919,
+                "year_closed": 2007,
+            },
+            "lethe": {"name": "Lethe Editions", "year_created": 1931},
+            "plain": "Plain Press",
+        },
+    )
+    summary = importer.import_yaml(session, info, default_owner="Me")
+    assert summary.created == 1
+    assert len(summary.errors) == 1
+    assert summary.errors[0].startswith("authors.yaml broken: year_born:")
+
+    rose = by_title(session)["The Name of the Rose"]
+    assert rose.authors == ["Umberto Eco"]
+    assert (rose.original_title, rose.original_language, rose.original_year) == (
+        "Il nome della rosa",
+        "Italian",
+        1980,
+    )
+    assert rose.translator == "William Weaver"
+
+    (eco,) = services.list_authors(session)  # "Nobody Yet" has no books, so is not stored
+    assert (eco.gender, eco.origin, eco.year_born, eco.year_deceased) == (
+        "male",
+        "Italy",
+        1932,
+        2016,
+    )
+    publishers = {p.name: p for p in services.list_publishers(session)}
+    assert set(publishers) == {"Harcourt", "Lethe Editions"}  # plain names carry no details
+    assert (publishers["Harcourt"].year_closed, publishers["Harcourt"].count) == (2007, 1)
+    assert publishers["Lethe Editions"].count == 0
 
 
 def test_original_fields_from_csv_and_goodreads(session, info):

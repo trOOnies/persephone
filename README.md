@@ -54,7 +54,7 @@ ISBNs are validated and stored as ISBN-13, so `0-441-17271-7` and
 | --- | --- |
 | `make serve` | Run the app with auto-reload (`python -m persephone.web --help` for host/port/db) |
 | `make seed` | Add demo books (safe to run twice) |
-| `make import` | Import every `.csv` / `.json` file in `info/` |
+| `make import` | Import `info/books.yaml` and every `.csv` / `.json` file in `info/` |
 | `make export-data [OWNER=name]` | Back up the library to `local/persephone-export-….json` |
 | `make import-data FILE=path` | Restore / merge a backup |
 | `make test` | Run the tests with coverage |
@@ -68,6 +68,48 @@ Every command accepts `--db PATH` when run directly, e.g.
 
 Put your files in `info/` (git-ignored, as it holds personal data):
 
+- **YAML library**: three files that refer to each other by id.
+
+  ```yaml
+  # authors.yaml: id -> name, or id -> details (all optional but the name)
+  frank-herbert:
+    name: Frank Herbert
+    gender: male
+    origin: United States
+    year_born: 1920
+    year_deceased: 1986    # leave out for living authors
+
+  # publishers.yaml: id -> name, or id -> details
+  ace:
+    name: Ace Books
+    origin: United States
+    year_created: 1952
+    year_closed: 2001      # leave out if still running
+
+  # books.yaml: a list of books
+  - title: Dune
+    authors: [frank-herbert]
+    publisher: ace
+    isbn: 0-441-17271-7
+    series: Dune Chronicles
+    series_index: 1
+    original_year: 1965    # first publication; published_year is your edition
+    status: read
+    rating: 4.5
+    favorite: true
+    tags: [sci-fi]
+    finished_on: 2023-02-14
+    copies:
+      - {owner: Demeter, format: hardcover, location: Study, lent_to: Hecate}
+  ```
+
+  Books take the same field names as the CSV columns below, plus
+  `original_title`, `original_language`, `original_year` and `translator` for
+  translations and later editions. A book with no
+  `copies` is on the wishlist. A book that names an author or publisher id
+  missing from `authors.yaml` / `publishers.yaml` is reported and skipped.
+  Author and publisher details fill in empty fields only, like book details;
+  details for an author with no books are ignored.
 - **Goodreads export** (*My Books → Import and export → Export library*).
   Ratings, shelves (as tags, with `favorites` becoming the favorite flag),
   read dates, reviews and *owned copies* are carried over, and series written
@@ -119,7 +161,7 @@ src/persephone/
   services.py     business logic shared by the API and the CLIs
   models.py       SQLAlchemy models (Book, Author, Publisher, Tag, Copy)
   schemas.py      Pydantic request/response models and validation
-  importer.py     info/ importer (Goodreads, CSV, JSON)
+  importer.py     info/ importer (YAML, Goodreads, CSV, JSON)
   userdata.py     JSON backup and restore
   seed.py         demo data
   openlibrary.py  ISBN lookup
