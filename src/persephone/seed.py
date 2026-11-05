@@ -8,7 +8,6 @@ Running it twice does not duplicate anything: books already present are left alo
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -17,8 +16,6 @@ from persephone import services
 from persephone.cli import add_common_arguments, open_from_args
 from persephone.db import session_scope
 from persephone.schemas import BookCreate, ImportSummary
-
-D = dt.date
 
 DEMO_BOOKS: list[dict[str, Any]] = [
     {
@@ -30,13 +27,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "description": "Fifteen books of transformations, from the creation of the world "
         "to the deification of Julius Caesar, including the rape of Proserpina.",
         "tags": ["mythology", "poetry", "classics"],
-        "status": "read",
-        "rating": 5,
-        "favorite": True,
-        "started_on": D(2024, 1, 3),
-        "finished_on": D(2024, 3, 12),
-        "review": "Book V, with Ceres searching for her daughter, never gets old.",
-        "copies": [{"format": "hardcover", "location": "Living room, top shelf"}],
     },
     {
         "title": "The Homeric Hymns",
@@ -46,11 +36,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "description": "Thirty-three hymns to the gods; the Hymn to Demeter tells "
         "of Persephone's abduction and the founding of the Eleusinian mysteries.",
         "tags": ["mythology", "poetry", "classics"],
-        "status": "read",
-        "rating": 4.5,
-        "favorite": True,
-        "finished_on": D(2023, 10, 30),
-        "copies": [{"format": "paperback", "location": "Living room, top shelf"}],
     },
     {
         "title": "The Odyssey",
@@ -58,12 +43,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "language": "English",
         "pages": 541,
         "tags": ["mythology", "epic", "classics"],
-        "status": "reading",
-        "started_on": D(2026, 10, 2),
-        "copies": [
-            {"format": "paperback", "location": "Bedside table"},
-            {"format": "audiobook", "owner": "Demeter"},
-        ],
     },
     {
         "title": "Mythology",
@@ -72,10 +51,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "published_year": 1942,
         "pages": 497,
         "tags": ["mythology", "non-fiction"],
-        "status": "read",
-        "rating": 4,
-        "finished_on": D(2022, 6, 18),
-        "copies": [{"format": "paperback", "owner": "Demeter", "lent_to": "Hecate"}],
     },
     {
         "title": "Circe",
@@ -85,13 +60,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "published_year": 2018,
         "pages": 393,
         "tags": ["mythology", "fantasy", "retelling"],
-        "status": "read",
-        "rating": 4.5,
-        "favorite": True,
-        "started_on": D(2025, 2, 1),
-        "finished_on": D(2025, 2, 20),
-        "review": "Witchcraft, exile and herbs. Pomegranates would have fit right in.",
-        "copies": [{"format": "hardcover", "location": "Study"}],
     },
     {
         "title": "The Song of Achilles",
@@ -101,7 +69,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "published_year": 2012,
         "pages": 378,
         "tags": ["mythology", "retelling"],
-        "status": "to_read",
     },
     {
         "title": "Dune",
@@ -113,10 +80,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "series": "Dune",
         "series_index": 1,
         "tags": ["science fiction"],
-        "status": "read",
-        "rating": 5,
-        "finished_on": D(2025, 8, 9),
-        "copies": [{"format": "paperback", "location": "Study"}, {"format": "ebook"}],
     },
     {
         "title": "Frankenstein",
@@ -125,10 +88,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "published_year": 1818,
         "pages": 280,
         "tags": ["gothic", "classics", "science fiction"],
-        "status": "read",
-        "rating": 4,
-        "finished_on": D(2024, 10, 31),
-        "copies": [{"format": "ebook"}],
     },
     {
         "title": "Pride and Prejudice",
@@ -136,9 +95,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "published_year": 1813,
         "pages": 432,
         "tags": ["classics", "romance"],
-        "status": "abandoned",
-        "rating": 2.5,
-        "review": "Not the right season for it. Will try again in spring.",
     },
     {
         "title": "The Secret Garden",
@@ -146,8 +102,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "published_year": 1911,
         "pages": 331,
         "tags": ["classics", "gardens"],
-        "status": "to_read",
-        "copies": [{"format": "hardcover", "location": "Greenhouse bench"}],
     },
     {
         "title": "Braiding Sweetgrass",
@@ -155,10 +109,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "published_year": 2013,
         "pages": 391,
         "tags": ["nature", "non-fiction", "gardens"],
-        "status": "read",
-        "rating": 5,
-        "favorite": True,
-        "finished_on": D(2026, 4, 22),
     },
     {
         "title": "The Name of the Rose",
@@ -167,8 +117,6 @@ DEMO_BOOKS: list[dict[str, Any]] = [
         "pages": 536,
         "language": "English",
         "tags": ["mystery", "historical"],
-        "status": "to_read",
-        "copies": [{"format": "paperback", "owner": "Demeter", "location": "Hallway"}],
     },
 ]
 
