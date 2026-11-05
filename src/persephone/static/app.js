@@ -30,7 +30,7 @@ const storage = {
 };
 
 const state = {
-  config: { default_owner: "Me", openlibrary: true, version: "" },
+  config: { default_owner: "Me", openlibrary: true, version: "", currency: "$" },
   layout: storage.get("persephone.layout") || "grid",
   library: null, // { mode, params, items, total }
 };
@@ -58,6 +58,9 @@ function icon(name) {
     plus: '<path d="M12 5v14M5 12h14"/>',
     door: '<path d="M13 4h3a2 2 0 0 1 2 2v14"/><path d="M2 20h3"/><path d="M13 20h9"/><path d="M10 12v.01"/><path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561z"/>',
     back: '<path d="M15 18l-6-6 6-6"/>',
+    cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a1 1 0 0 0 1 .8h9.6a1 1 0 0 0 1-.8L21 7H6.2"/>',
+    alert: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
+    save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h8V3M8 21v-7h8v7"/>',
     x: '<path d="M6 6l12 12M18 6L6 18"/>',
     book: '<path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4V4z"/><path d="M5 16a4 4 0 0 1 4-4h10"/>',
     tablet: '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M11 18h2"/>',
@@ -283,6 +286,8 @@ async function route() {
       await renderLibrary(section, params);
     } else if (section === "book" && id) {
       await renderBookPage(Number(id));
+    } else if (section === "budget") {
+      await renderBudget();
     } else if (section === "stats") {
       await renderStats();
     } else if (section === "data") {
@@ -943,6 +948,265 @@ async function submitCopy(event) {
 
 // ------------------------------------------------------------------- stats --
 
+// ------------------------------------------------------------------ budget --
+
+function money(amount) {
+  const number = (amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const symbol = state.config.currency || "$";
+  return symbol.length > 1 ? `${symbol} ${number}` : `${symbol}${number}`;
+}
+
+function moneyOrZero(value) {
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+async function allBooks() {
+  const books = [];
+  for (let offset = 0; ; offset += 500) {
+    const page = await api("/books", { query: { limit: 500, offset, sort: "title" } });
+    books.push(...page.items);
+    if (books.length >= page.total || !page.items.length) return books;
+  }
+}
+
+const ALREADY_OWNED = "You already own this book. You can still add it, but saving the cart marks it as not owned (wishlist) until the cart is bought.";
+
+async function renderBudget() {
+  setNav("budget");
+  setTitle("Budget");
+  view.dataset.view = "budget";
+  const [cart, carts, books] = await Promise.all([api("/carts/active"), api("/carts"), allBooks()]);
+  const inCart = new Set((cart?.items || []).map((item) => item.book_id));
+  const groups = [
+    ["Not owned (wishlist)", books.filter((b) => !b.owned)],
+    ["Owned", books.filter((b) => b.owned && !isLent(b))],
+    ["Owned, lent out", books.filter((b) => b.owned && isLent(b))],
+  ].filter(([, list]) => list.length);
+  const option = (b) => `<option value="${b.id}" ${inCart.has(b.id) ? "disabled" : ""}>${esc(b.title)}${b.authors.length ? ` · ${esc(b.authors.join(", "))}` : ""}${inCart.has(b.id) ? " (in cart)" : ""}</option>`;
+
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Budget</h1><p class="lede">Plan what to buy next and keep track of what you spent.</p><span class="ornament" aria-hidden="true"></span></div></div>
+    <div class="budget-grid">
+      <section class="panel" aria-labelledby="cart-title">
+        <div class="section-title"><h2 id="cart-title">${icon("cart")} Active cart</h2></div>
+        ${activeCartHtml(cart)}
+      </section>
+      <section class="panel" aria-labelledby="add-cart-title">
+        <div class="section-title"><h2 id="add-cart-title">${icon("plus")} Add book to cart</h2></div>
+        <form id="cart-form" class="cart-form" novalidate>
+          <div class="field">
+            <label for="cart-book">Book</label>
+            <select id="cart-book" name="book" required>
+              <option value="">Choose a book…</option>
+              ${groups.map(([label, list]) => `<optgroup label="${esc(label)}">${list.map(option).join("")}</optgroup>`).join("")}
+            </select>
+          </div>
+          <p class="cart-warning" id="cart-book-warning" role="status" hidden>${icon("alert")} ${esc(ALREADY_OWNED)}</p>
+          <div class="cart-form-amounts">
+            <div class="field">
+              <label for="cart-price">Price</label>
+              <input id="cart-price" name="price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required>
+            </div>
+            <div class="field">
+              <label for="cart-discount">Discount <span class="optional">(optional)</span></label>
+              <input id="cart-discount" name="discount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+            </div>
+          </div>
+          <p class="form-error" hidden></p>
+          <div><button class="btn btn-primary" type="submit">${icon("plus")} Add to cart</button></div>
+          ${books.length ? "" : '<p class="hint">Your library is empty. Add some books first.</p>'}
+        </form>
+      </section>
+    </div>
+    <section class="panel cart-history" aria-labelledby="history-title">
+      <div class="section-title"><h2 id="history-title">Cart history</h2></div>
+      ${carts.length ? carts.map(historyCartHtml).join("") : '<p class="hint">Saved and bought carts show up here.</p>'}
+    </section>`;
+
+  bindBudget(cart, books);
+}
+
+function cartStatusPill(cart) {
+  return cart.status === "bought"
+    ? `<span class="pill status-read">Bought ${esc(formatDate(cart.bought_on))}</span>`
+    : `<span class="pill">Saved ${esc(formatDate(cart.saved_at?.slice(0, 10)))}</span>`;
+}
+
+function cartTotalsHtml(cart, { editableShipping = false } = {}) {
+  const shipping = editableShipping
+    ? `<input id="cart-shipping" type="number" min="0" step="0.01" inputmode="decimal" value="${cart.shipping || ""}" placeholder="0.00" aria-label="Shipping">`
+    : esc(money(cart.shipping));
+  return `
+    <dl class="cart-totals">
+      <dt>Subtotal</dt><dd>${esc(money(cart.subtotal))}</dd>
+      <dt>Discounts</dt><dd>${cart.discount ? `−${esc(money(cart.discount))}` : esc(money(0))}</dd>
+      <dt>${editableShipping ? '<label for="cart-shipping">Shipping <span class="optional">(optional)</span></label>' : "Shipping"}</dt><dd>${shipping}</dd>
+      <dt class="cart-total">Total</dt><dd class="cart-total">${esc(money(cart.total))}</dd>
+    </dl>`;
+}
+
+function activeCartHtml(cart) {
+  if (!cart || !cart.items.length) {
+    return `<p class="hint">The cart is empty. Add a book with the form${cart ? "" : " to start one"}.</p>
+      ${cart && cart.saved_at ? `<div class="cart-actions"><button type="button" class="btn btn-danger btn-sm" data-cart-action="delete" data-cart="${cart.id}">${icon("trash")} Delete cart</button></div>` : ""}`;
+  }
+  const rows = cart.items.map((item) => `
+    <tr data-item="${item.id}">
+      <td class="cart-book">
+        <a href="#/book/${item.book_id}">${esc(item.title)}</a>
+        ${item.authors.length ? `<span class="row-sub">${esc(item.authors.join(", "))}</span>` : ""}
+        ${item.owned ? `<span class="pill warn" title="${esc(ALREADY_OWNED)}">${icon("alert")} Already owned</span>` : ""}
+      </td>
+      <td data-label="Price"><input type="number" min="0" step="0.01" inputmode="decimal" value="${item.price}" data-item-field="price" aria-label="Price of ${esc(item.title)}"></td>
+      <td data-label="Discount"><input type="number" min="0" step="0.01" inputmode="decimal" value="${item.discount || ""}" placeholder="0.00" data-item-field="discount" aria-label="Discount on ${esc(item.title)}"></td>
+      <td class="money" data-label="Total">${esc(money(item.total))}</td>
+      <td><button type="button" class="btn btn-icon btn-sm" data-remove-item="${item.id}" aria-label="Remove ${esc(item.title)} from the cart" title="Remove">${icon("trash")}</button></td>
+    </tr>`).join("");
+  return `
+    ${cart.saved_at ? `<p class="hint">Editing cart #${cart.id}, saved ${esc(formatDate(cart.saved_at.slice(0, 10)))}.</p>` : ""}
+    <div class="table-scroll">
+      <table class="cart-table">
+        <thead><tr><th scope="col">Book</th><th scope="col">Price</th><th scope="col">Discount</th><th scope="col">Total</th><th scope="col"><span class="visually-hidden">Remove</span></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    ${cartTotalsHtml(cart, { editableShipping: true })}
+    <div class="cart-actions">
+      <button type="button" class="btn btn-primary" data-cart-action="save" data-cart="${cart.id}">${icon("save")} Save cart</button>
+      <button type="button" class="btn btn-secondary" data-cart-action="buy" data-cart="${cart.id}">${icon("cart")} Buy</button>
+      <button type="button" class="btn btn-danger" data-cart-action="delete" data-cart="${cart.id}">${icon("trash")} Delete cart</button>
+    </div>`;
+}
+
+function historyCartHtml(cart) {
+  const items = cart.items.map((item) => `
+    <li><a href="#/book/${item.book_id}">${esc(item.title)}</a>
+      <span class="money">${esc(money(item.price))}${item.discount ? ` − ${esc(money(item.discount))}` : ""}</span></li>`).join("");
+  const actions = cart.status === "saved"
+    ? `<button type="button" class="btn btn-sm" data-cart-action="edit" data-cart="${cart.id}">${icon("edit")} Edit</button>
+       <button type="button" class="btn btn-sm btn-secondary" data-cart-action="buy" data-cart="${cart.id}">${icon("cart")} Buy</button>`
+    : "";
+  return `
+    <article class="history-cart" data-history-cart="${cart.id}">
+      <details>
+        <summary>
+          <strong>Cart #${cart.id}</strong> ${cartStatusPill(cart)}
+          <span class="row-sub">${esc(plural(cart.items.length, "book"))}</span>
+          <span class="money cart-total">${esc(money(cart.total))}</span>
+        </summary>
+        ${cart.items.length ? `<ul class="history-items">${items}</ul>` : '<p class="hint">These books were deleted from the library.</p>'}
+        ${cartTotalsHtml(cart)}
+      </details>
+      <div class="cart-actions">
+        ${actions}
+        <button type="button" class="btn btn-sm btn-danger" data-cart-action="delete" data-cart="${cart.id}">${icon("trash")} Delete</button>
+      </div>
+    </article>`;
+}
+
+function bindBudget(cart, books) {
+  const form = $("#cart-form", view);
+  const select = $("#cart-book", form);
+  const warning = $("#cart-book-warning", form);
+  const byId = new Map(books.map((b) => [String(b.id), b]));
+  select.addEventListener("change", () => {
+    warning.hidden = !byId.get(select.value)?.owned;
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    showFormError(form, "");
+    if (!select.value) { showFormError(form, "Choose a book."); select.focus(); return; }
+    const priceInput = $("#cart-price", form);
+    if (priceInput.value === "" || !priceInput.checkValidity()) {
+      showFormError(form, "Enter a price of 0 or more.");
+      priceInput.focus();
+      return;
+    }
+    try {
+      await api("/carts/active/items", {
+        method: "POST",
+        body: {
+          book_id: Number(select.value),
+          price: Number.parseFloat(priceInput.value),
+          discount: moneyOrZero($("#cart-discount", form).value),
+        },
+      });
+      toast(`Added “${byId.get(select.value).title}” to the cart`);
+      await renderBudget();
+      $("#cart-book", view)?.focus();
+    } catch (error) {
+      showFormError(form, error.message);
+    }
+  });
+
+  for (const input of $$("[data-item-field]", view)) {
+    input.addEventListener("change", async () => {
+      const id = input.closest("[data-item]").dataset.item;
+      try {
+        await api(`/cart-items/${id}`, { method: "PATCH", body: { [input.dataset.itemField]: moneyOrZero(input.value) } });
+        await renderBudget();
+      } catch (error) {
+        toast(error.message, { error: true });
+        await renderBudget();
+      }
+    });
+  }
+  $("#cart-shipping", view)?.addEventListener("change", async (event) => {
+    try {
+      await api(`/carts/${cart.id}`, { method: "PATCH", body: { shipping: moneyOrZero(event.target.value) } });
+    } catch (error) {
+      toast(error.message, { error: true });
+    }
+    await renderBudget();
+  });
+
+  view.addEventListener("click", budgetClick); // the same function is only added once
+}
+
+async function budgetClick(event) {
+  if (view.dataset.view !== "budget") return;
+  const remove = event.target.closest("[data-remove-item]");
+  if (remove) {
+    try {
+      await api(`/cart-items/${remove.dataset.removeItem}`, { method: "DELETE" });
+      await renderBudget();
+    } catch (error) { toast(error.message, { error: true }); }
+    return;
+  }
+  const button = event.target.closest("[data-cart-action]");
+  if (!button) return;
+  const id = button.dataset.cart;
+  const action = button.dataset.cartAction;
+  let cart;
+  try { cart = await api(`/carts/${id}`); } catch (error) { toast(error.message, { error: true }); return; }
+  const owned = cart.items.filter((item) => item.owned).length;
+
+  if (action === "save") {
+    if (owned && !(await confirmDialog(
+      `${plural(owned, "book in this cart is", "books in this cart are")} already owned. Saving marks every book in the cart as not owned (wishlist), removing their copies.`,
+      "Save cart",
+    ))) return;
+  } else if (action === "buy") {
+    if (!(await confirmDialog(`Mark cart #${id} as bought? Its books become owned, and the cart stays in the history.`, "Buy"))) return;
+  } else if (action === "delete") {
+    const text = cart.saved_at
+      ? `Delete cart #${id}? Its ${plural(cart.items.length, "book")} will be marked as not owned (wishlist)${owned ? ", removing their copies" : ""}.`
+      : `Delete the active cart? Its books are left as they are.`;
+    if (!(await confirmDialog(text))) return;
+  }
+
+  try {
+    if (action === "delete") await api(`/carts/${id}`, { method: "DELETE" });
+    else await api(`/carts/${id}/${action}`, { method: "POST" });
+    toast({ save: "Cart saved", buy: "Cart bought", edit: `Editing cart #${id}`, delete: "Cart deleted" }[action]);
+    await renderBudget();
+    if (action === "edit") $("#cart-title", view)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    toast(error.message, { error: true });
+  }
+}
+
 async function renderStats() {
   setNav("stats");
   setTitle("Stats");
@@ -1069,6 +1333,7 @@ function renderHelp() {
         <a href="#help-reading">📖 Tracking your reading</a>
         <a href="#help-copies">📚 Copies &amp; lending</a>
         <a href="#help-find">🔎 Finding books</a>
+        <a href="#help-budget">💰 Budget</a>
         <a href="#help-stats">📊 Stats</a>
         <a href="#help-backup">💾 Backups</a>
         <a href="#help-tips">✨ Handy tricks</a>
@@ -1130,6 +1395,21 @@ function renderHelp() {
           a search (say, “unread fantasy”) and come back to it any time.</p>
       </section>
 
+      <section class="help-section panel" id="help-budget">
+        <h2>💰 Budget: plan your next books</h2>
+        <ul class="help-list">
+          <li>🛒 Open the <strong>Budget</strong> tab. Pick a book in <strong>Add book to cart</strong>, type its <strong>price</strong>
+            and, if you got one, a <strong>discount</strong>. Books you don't own yet are listed first.</li>
+          <li>📦 Add the <strong>shipping</strong> for the whole cart below the list. The total adds it all up for you.</li>
+          <li>💾 <span class="help-btn">Save cart</span> keeps it in the <strong>Cart history</strong> and puts its books on your wishlist.
+            You can <span class="help-btn">Edit</span> a saved cart later.</li>
+          <li>✅ <span class="help-btn">Buy</span> marks its books as <mark>owned</mark>. The cart stays in the history so you can see what you spent.</li>
+          <li>🗑️ Deleting a saved or bought cart puts its books back on the wishlist.</li>
+        </ul>
+        <p class="help-callout warn">⚠️ If you add a book you <strong>already own</strong>, Persephone warns you. You can still add it,
+          but saving the cart marks it as not owned until you buy it.</p>
+      </section>
+
       <section class="help-section panel" id="help-stats">
         <h2>📊 Stats</h2>
         <p>The <strong>Stats</strong> tab shows your reading life at a glance: how many books you've read,
@@ -1156,7 +1436,8 @@ function renderHelp() {
           <li>⌨️ Press <kbd>/</kbd> to jump straight to the search box.</li>
           <li>⌨️ Press <kbd>N</kbd> to add a new book.</li>
           <li>🌙 Prefer dark screens? The <strong>moon button</strong> at the top switches between light and dark.</li>
-          <li>🏠 Click the <strong>Persephone</strong> logo at any time to go back to your library.</li>
+          <li>🚪 Done for the day? The <strong>door button</strong> next to it is <em>Save and Exit</em>: it stops Persephone and closes the tab.</li>
+          <li>🏠 Click the <strong>Persephone</strong> logo at any time to go back to your library. That's where the library lives now: there is no separate Library tab.</li>
         </ul>
       </section>
 

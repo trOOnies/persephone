@@ -338,6 +338,64 @@ class AppConfig(BaseModel):
     version: str
     default_owner: str
     openlibrary: bool
+    currency: str
+
+
+# ------------------------------------------------------------------ budget ---
+
+Money = Annotated[float, Field(ge=0, le=1_000_000)]
+
+
+class CartStatus(str, Enum):
+    OPEN = "open"
+    SAVED = "saved"
+    BOUGHT = "bought"
+
+
+class CartItemCreate(BaseModel):
+    book_id: int
+    price: Money
+    discount: Money = 0
+
+    @model_validator(mode="after")
+    def _check_discount(self):
+        if self.discount > self.price:
+            raise ValueError("the discount cannot be more than the price")
+        return self
+
+
+class CartItemUpdate(BaseModel):
+    price: Money | None = None
+    discount: Money | None = None
+
+
+class CartUpdate(BaseModel):
+    shipping: Money
+
+
+class CartItemOut(BaseModel):
+    id: int
+    book_id: int
+    title: str
+    authors: list[str]
+    owned: bool = Field(description="Whether the book has copies right now")
+    price: float
+    discount: float
+    total: float
+
+
+class CartOut(BaseModel):
+    id: int
+    status: CartStatus
+    items: list[CartItemOut]
+    subtotal: float = Field(description="Sum of the prices")
+    discount: float = Field(description="Sum of the discounts")
+    shipping: float
+    total: float = Field(description="subtotal - discount + shipping")
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    saved_at: dt.datetime | None
+    bought_on: dt.date | None
 
 
 class ImportSummary(BaseModel):

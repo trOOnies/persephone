@@ -13,6 +13,7 @@ def test_health_and_config(client):
         "version": __version__,
         "default_owner": "Me",
         "openlibrary": True,
+        "currency": "$",
     }
 
 

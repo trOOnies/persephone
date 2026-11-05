@@ -164,3 +164,40 @@ class Copy(Base):
     notes: Mapped[str | None] = mapped_column(Text)
 
     book: Mapped[Book] = relationship(back_populates="copies")
+
+
+class Cart(Base):
+    """A shopping cart for the Budget tab.
+
+    ``open`` is the active cart being filled (at most one), ``saved`` is kept for
+    later and can be reopened, ``bought`` is final. Money is stored in cents.
+    """
+
+    __tablename__ = "carts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(10), default="open", index=True)
+    shipping_cents: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    saved_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    bought_on: Mapped[dt.date | None] = mapped_column(Date)
+
+    items: Mapped[list[CartItem]] = relationship(
+        back_populates="cart", cascade="all, delete-orphan", order_by="CartItem.id"
+    )
+
+
+class CartItem(Base):
+    """One book in a cart, with what it costs."""
+
+    __tablename__ = "cart_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cart_id: Mapped[int] = mapped_column(ForeignKey("carts.id", ondelete="CASCADE"), index=True)
+    book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), index=True)
+    price_cents: Mapped[int] = mapped_column(Integer)
+    discount_cents: Mapped[int] = mapped_column(Integer, default=0)
+
+    cart: Mapped[Cart] = relationship(back_populates="items")
+    book: Mapped[Book] = relationship(lazy="joined")

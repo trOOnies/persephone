@@ -21,7 +21,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from persephone import __version__, openlibrary, services, userdata
+from persephone import __version__, budget, openlibrary, services, userdata
 from persephone import isbn as isbn_utils
 from persephone.config import Settings
 from persephone.schemas import (
@@ -31,6 +31,10 @@ from persephone.schemas import (
     BookOut,
     BookPage,
     BookUpdate,
+    CartItemCreate,
+    CartItemUpdate,
+    CartOut,
+    CartUpdate,
     CopyCreate,
     CopyOut,
     CopyUpdate,
@@ -119,6 +123,7 @@ def app_config(settings: SettingsDep) -> AppConfig:
         version=__version__,
         default_owner=settings.default_owner,
         openlibrary=settings.openlibrary,
+        currency=settings.currency,
     )
 
 
@@ -245,6 +250,100 @@ def list_owners(session: SessionDep) -> list[NameCount]:
 @router.get("/stats", response_model=Stats, tags=["facets"])
 def get_stats(session: SessionDep) -> Stats:
     return services.stats(session)
+
+
+# ---------------------------------------------------------------- budget ---
+
+
+def _cart_or_404(session: Session, cart_id: int):
+    try:
+        return budget.get_cart(session, cart_id)
+    except services.NotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Cart not found") from exc
+
+
+def _cart_item_or_404(session: Session, item_id: int):
+    try:
+        return budget.get_item(session, item_id)
+    except services.NotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Cart item not found") from exc
+
+
+def _cart_change(action, *args, **kwargs) -> CartOut:
+    """Run a budget change, turning its errors into 404 / 409 / 422 answers."""
+    try:
+        return budget.cart_out(action(*args, **kwargs))
+    except services.NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except services.ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/carts", response_model=list[CartOut], tags=["budget"])
+def list_carts(session: SessionDep) -> list[CartOut]:
+    """Cart history: saved and bought carts, newest first."""
+    return [budget.cart_out(cart) for cart in budget.history(session)]
+
+
+@router.get("/carts/active", response_model=CartOut | None, tags=["budget"])
+def get_active_cart(session: SessionDep) -> CartOut | None:
+    """The cart being filled, or ``null`` when there is none."""
+    cart = budget.active_cart(session)
+    return budget.cart_out(cart) if cart else None
+
+
+@router.post("/carts/active/items", response_model=CartOut, status_code=201, tags=["budget"])
+def add_to_cart(data: CartItemCreate, session: SessionDep) -> CartOut:
+    """Add a book to the active cart (created if needed). Owned books are allowed."""
+    return _cart_change(budget.add_item, session, data)
+
+
+@router.get("/carts/{cart_id}", response_model=CartOut, tags=["budget"])
+def get_cart(cart_id: int, session: SessionDep) -> CartOut:
+    return budget.cart_out(_cart_or_404(session, cart_id))
+
+
+@router.patch("/carts/{cart_id}", response_model=CartOut, tags=["budget"])
+def update_cart(cart_id: int, data: CartUpdate, session: SessionDep) -> CartOut:
+    return _cart_change(budget.update_cart, session, _cart_or_404(session, cart_id), data)
+
+
+@router.post("/carts/{cart_id}/save", response_model=CartOut, tags=["budget"])
+def save_cart(cart_id: int, session: SessionDep) -> CartOut:
+    """Keep the active cart; its books become not owned (wishlist)."""
+    return _cart_change(budget.save_cart, session, _cart_or_404(session, cart_id))
+
+
+@router.post("/carts/{cart_id}/buy", response_model=CartOut, tags=["budget"])
+def buy_cart(cart_id: int, session: SessionDep, settings: SettingsDep) -> CartOut:
+    """Mark the cart as bought (it stays in the history); its books become owned."""
+    cart = _cart_or_404(session, cart_id)
+    return _cart_change(budget.buy_cart, session, cart, owner=settings.default_owner)
+
+
+@router.post("/carts/{cart_id}/edit", response_model=CartOut, tags=["budget"])
+def edit_cart(cart_id: int, session: SessionDep) -> CartOut:
+    """Reopen a saved cart as the active one."""
+    return _cart_change(budget.edit_cart, session, _cart_or_404(session, cart_id))
+
+
+@router.delete("/carts/{cart_id}", status_code=204, tags=["budget"])
+def delete_cart(cart_id: int, session: SessionDep) -> Response:
+    """Delete a cart. If it was ever saved, its books become not owned (wishlist)."""
+    budget.delete_cart(session, _cart_or_404(session, cart_id))
+    return Response(status_code=204)
+
+
+@router.patch("/cart-items/{item_id}", response_model=CartOut, tags=["budget"])
+def update_cart_item(item_id: int, data: CartItemUpdate, session: SessionDep) -> CartOut:
+    return _cart_change(budget.update_item, session, _cart_item_or_404(session, item_id), data)
+
+
+@router.delete("/cart-items/{item_id}", response_model=CartOut, tags=["budget"])
+def remove_cart_item(item_id: int, session: SessionDep) -> CartOut:
+    return _cart_change(budget.remove_item, session, _cart_item_or_404(session, item_id))
 
 
 # ---------------------------------------------------------------- lookup ---

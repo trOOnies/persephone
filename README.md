@@ -35,6 +35,13 @@ are at <http://127.0.0.1:8000/docs>.
 - **Ownership:** any number of copies per book, each with an owner, format
   (hardcover, paperback, e-book, audiobook, other), location, acquisition date,
   notes and who it is *lent to*. A book without copies is on the wishlist.
+- **Budget** tab: an active cart of books with a price, an optional discount
+  per book and optional shipping per cart, plus a cart history. Carts can be
+  saved (their books go to the wishlist), reopened for editing, bought (their
+  books become owned, the cart is kept) and deleted (their books go back to the
+  wishlist). Adding a book you already own shows a warning but is allowed.
+- The library itself opens from the **Persephone** logo; there is no separate
+  Library tab.
 - **Favorites** page and **Stats** (status counts, rating distribution, books
   finished per year, top authors and tags, copies per owner and format).
 - **ISBN lookup** on [Open Library](https://openlibrary.org) to fill in the
@@ -148,6 +155,7 @@ created. Backups can also be downloaded and restored from the *Backup* page.
 | `PERSEPHONE_DATABASE_URL` | – | Full SQLAlchemy URL, overrides `PERSEPHONE_DB` |
 | `PERSEPHONE_OWNER` | `Me` | Owner of new copies when none is given |
 | `PERSEPHONE_OPENLIBRARY` | `1` | `0` disables ISBN lookups and Open Library covers |
+| `PERSEPHONE_CURRENCY` | `$` | Symbol shown next to prices in the Budget tab |
 
 The schema is created automatically on start-up, new tables included, and older
 databases are upgraded where needed (for example to make a book's status
@@ -161,7 +169,8 @@ src/persephone/
   web.py          FastAPI app factory and `python -m persephone.web`
   api.py          JSON API under /api
   services.py     business logic shared by the API and the CLIs
-  models.py       SQLAlchemy models (Book, Author, Publisher, Tag, Copy)
+  budget.py       Budget tab: carts, prices and their effect on ownership
+  models.py       SQLAlchemy models (Book, Author, Publisher, Tag, Copy, Cart)
   schemas.py      Pydantic request/response models and validation
   importer.py     info/ importer (YAML, Goodreads, CSV, JSON)
   userdata.py     JSON backup and restore
@@ -179,6 +188,9 @@ min_rating`, `sort`, `order`, `limit`, `offset`) ·
 `GET/PATCH/DELETE /api/books/{id}` · `POST /api/books/{id}/copies` ·
 `PATCH/DELETE /api/copies/{id}` · `GET /api/authors | /api/publishers | /api/tags |
 /api/owners | /api/stats | /api/config` (authors and publishers include their details) · `GET /api/lookup/isbn/{isbn}` ·
+`GET /api/carts | /api/carts/active | /api/carts/{id}` · `POST /api/carts/active/items` ·
+`PATCH/DELETE /api/carts/{id}` · `POST /api/carts/{id}/save | buy | edit` ·
+`PATCH/DELETE /api/cart-items/{id}` ·
 `GET /api/export` · `POST /api/import`.
 
 ## Theme

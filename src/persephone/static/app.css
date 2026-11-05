@@ -977,6 +977,101 @@ fieldset {
   .help-logo { width: 56px; height: 56px; }
 }
 
+/* ---------------------------------------------------------------- budget -- */
+
+.budget-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(min(100%, 300px), 2fr);
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+.budget-grid .panel, .cart-form { display: grid; gap: 12px; align-content: start; }
+.section-title h2 .icon { vertical-align: -0.15em; }
+.cart-form-amounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.optional { font-weight: 400; color: var(--ink-muted); }
+.cart-warning, .pill.warn { background: var(--gold-200); color: #5a4310; }
+.cart-warning {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.cart-warning .icon { flex: none; margin-top: 2px; }
+.cart-warning[hidden] { display: none; }
+.pill.warn { margin-top: 4px; width: fit-content; }
+.table-scroll { overflow-x: auto; }
+.cart-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.cart-table th {
+  text-align: left;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.cart-table td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.cart-table input { width: 7.5em; }
+.cart-book { display: flex; flex-direction: column; min-width: 12em; }
+.cart-book a { font-weight: 600; }
+.money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.money { padding-top: 15px; text-align: right; }
+.cart-totals {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 16px;
+  margin: 0 0 0 auto;
+  max-width: 320px;
+  font-variant-numeric: tabular-nums;
+}
+.cart-totals dt { color: var(--ink-soft); align-self: center; }
+.cart-totals dd { margin: 0; text-align: right; }
+.cart-totals input { width: 7.5em; text-align: right; }
+.cart-totals .cart-total { font-weight: 700; color: var(--ink); border-top: 1px solid var(--line); padding-top: 6px; }
+.cart-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cart-history { display: grid; gap: 4px; }
+.history-cart { border-top: 1px solid var(--line); padding: 10px 0; display: grid; gap: 8px; }
+.history-cart summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.history-cart summary .cart-total { margin-left: auto; font-weight: 700; }
+.history-cart details[open] summary { margin-bottom: 8px; }
+.history-items { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 4px; }
+.history-items li { display: flex; gap: 12px; justify-content: space-between; }
+
+@media (max-width: 860px) {
+  .budget-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  /* Each cart line becomes a small card: the book, then price, discount and total. */
+  .cart-table thead { display: none; }
+  .cart-table, .cart-table tbody { display: block; }
+  .cart-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+    gap: 6px 10px;
+    align-items: end;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .cart-table td { padding: 0; border: 0; }
+  .cart-table td.cart-book { grid-column: 1 / -1; min-width: 0; }
+  .cart-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-muted);
+    margin-bottom: 2px;
+  }
+  .cart-table input { width: 100%; }
+  td.money { padding: 0 0 9px; }
+  .cart-totals { max-width: none; }
+}
+
 /* ---------------------------------------------------------------- backup -- */
 
 .backup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 18px; }
