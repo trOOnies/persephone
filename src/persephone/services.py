@@ -43,6 +43,10 @@ CATALOG_FIELDS = (
     "cover_url",
     "series",
     "series_index",
+    "original_title",
+    "original_language",
+    "original_year",
+    "translator",
 )
 PERSONAL_FIELDS = ("status", "rating", "favorite", "started_on", "finished_on", "review")
 COPY_FIELDS = ("owner", "format", "location", "acquired_on", "lent_to", "notes")

@@ -341,3 +341,45 @@ def test_cli(tmp_path, info, capsys):
     assert importer.main([str(info), "--db", str(db), "--owner", "Kore"]) == 0
     assert "Total: 0 created, 0 updated, 1 unchanged" in capsys.readouterr().out
     assert importer.main([str(tmp_path / "missing"), "--db", str(db)]) == 2
+
+
+def test_original_fields_from_csv_and_goodreads(session, info):
+    write_csv(
+        info / "es.csv",
+        ["Título", "Autor", "Título original", "Idioma original", "Año original", "Traductor"],
+        [
+            {
+                "Título": "El nombre de la rosa",
+                "Autor": "Umberto Eco",
+                "Título original": "Il nome della rosa",
+                "Idioma original": "italiano",
+                "Año original": "1980",
+                "Traductor": "Ricardo Pochtar",
+            }
+        ],
+    )
+    write_csv(
+        info / "goodreads_library_export.csv",
+        GOODREADS_HEADER,
+        [
+            goodreads_row(
+                Title="Dune",
+                Author="Frank Herbert",
+                **{
+                    "Exclusive Shelf": "read",
+                    "Year Published": "1990",
+                    "Original Publication Year": "1965",
+                },
+            )
+        ],
+    )
+    importer.import_folder(session, info, default_owner="Me")
+    books = by_title(session)
+    rosa = books["El nombre de la rosa"]
+    assert (rosa.original_title, rosa.original_language, rosa.original_year, rosa.translator) == (
+        "Il nome della rosa",
+        "italiano",
+        1980,
+        "Ricardo Pochtar",
+    )
+    assert (books["Dune"].published_year, books["Dune"].original_year) == (1990, 1965)

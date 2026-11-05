@@ -571,8 +571,12 @@ function renderBookDetail(book) {
   const meta = [
     ["Publisher", book.publisher],
     ["Published", book.published_year],
+    ["First published", book.original_year !== book.published_year ? book.original_year : null],
     ["Pages", book.pages?.toLocaleString()],
     ["Language", book.language],
+    ["Original title", book.original_title],
+    ["Original language", book.original_language !== book.language ? book.original_language : null],
+    ["Translated by", book.translator],
     ["ISBN", book.isbn],
     ["Added", formatDate(book.created_at.slice(0, 10))],
   ].filter(([, v]) => v !== null && v !== undefined && v !== "");
@@ -775,7 +779,7 @@ async function openBookDialog(book = null) {
   $("#isbn-lookup").hidden = !state.config.openlibrary;
   setIsbnHint(state.config.openlibrary ? "Type an ISBN and look it up to fill in the details." : "");
   if (book) {
-    for (const name of ["isbn", "title", "subtitle", "series", "series_index", "publisher", "published_year", "pages", "language", "cover_url", "description"]) {
+    for (const name of ["isbn", "title", "subtitle", "series", "series_index", "publisher", "published_year", "pages", "language", "original_title", "original_language", "original_year", "translator", "cover_url", "description"]) {
       bookForm.elements[name].value = book[name] ?? "";
     }
     bookForm.elements.authors.value = book.authors.join(", ");
@@ -843,6 +847,10 @@ function bookPayload(isNew) {
     published_year: numberOrNull(els.published_year.value),
     pages: numberOrNull(els.pages.value),
     language: els.language.value.trim() || null,
+    original_title: els.original_title.value.trim() || null,
+    original_language: els.original_language.value.trim() || null,
+    original_year: numberOrNull(els.original_year.value),
+    translator: els.translator.value.trim() || null,
     cover_url: els.cover_url.value.trim() || null,
     description: els.description.value.trim() || null,
   };

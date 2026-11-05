@@ -92,6 +92,10 @@ class Book(Base):
     cover_url: Mapped[str | None] = mapped_column(String(1000))
     series: Mapped[str | None] = mapped_column(String(255))
     series_index: Mapped[float | None] = mapped_column(Float)
+    original_title: Mapped[str | None] = mapped_column(String(500))
+    original_language: Mapped[str | None] = mapped_column(String(50))
+    original_year: Mapped[int | None] = mapped_column(Integer)
+    translator: Mapped[str | None] = mapped_column(String(255))
 
     # Personal data
     status: Mapped[str] = mapped_column(String(20), default="to_read", index=True)

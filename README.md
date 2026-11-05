@@ -75,7 +75,8 @@ Put your files in `info/` (git-ignored, as it holds personal data):
 - **Any CSV** with a header row (`,`, `;` or tab separated). Column names are
   matched loosely, in English or Spanish: `title`, `author(s)`, `isbn`,
   `publisher`, `year`, `pages`, `language`, `description`, `cover`, `series`,
-  `series_index`, `status`, `rating`, `favorite`, `tags`/`genres`, `started`,
+  `series_index`, `original_title`, `original_language`, `original_year`,
+  `translator`, `status`, `rating`, `favorite`, `tags`/`genres`, `started`,
   `finished`/`date read`, `review`/`notes`, `owner`, `format`, `location`,
   `owned`/`copies` (a number or yes/no). Separate several authors or tags with `;`.
 - **JSON**: a list of objects with the same field names, or a Persephone backup.

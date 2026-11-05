@@ -127,6 +127,10 @@ class _BookFields(BaseModel):
     cover_url: OptStr = Field(default=None, max_length=1000)
     series: OptStr = Field(default=None, max_length=255)
     series_index: float | None = Field(default=None, ge=0)
+    original_title: OptStr = Field(default=None, max_length=500)
+    original_language: OptStr = Field(default=None, max_length=50)
+    original_year: int | None = Field(default=None, ge=-3000, le=3000)
+    translator: OptStr = Field(default=None, max_length=255)
     rating: float | None = None
     started_on: dt.date | None = None
     finished_on: dt.date | None = None
@@ -219,6 +223,10 @@ class BookOut(BaseModel):
     cover_url: str | None
     series: str | None
     series_index: float | None
+    original_title: str | None
+    original_language: str | None
+    original_year: int | None
+    translator: str | None
     status: Status
     rating: float | None
     favorite: bool
