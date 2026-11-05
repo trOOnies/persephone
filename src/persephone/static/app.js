@@ -17,7 +17,7 @@ const SORTS = {
   year: { label: "Year published", order: "desc" },
   finished: { label: "Recently finished", order: "desc" },
 };
-const PAGE_SIZE = 60;
+const PAGE_SIZE = 50; // 10 columns x 5 rows on a full-width 1920px window
 
 // localStorage can throw (private windows, blocked storage): it only keeps conveniences.
 const storage = {
@@ -58,6 +58,7 @@ function icon(name) {
     plus: '<path d="M12 5v14M5 12h14"/>',
     door: '<path d="M13 4h3a2 2 0 0 1 2 2v14"/><path d="M2 20h3"/><path d="M13 20h9"/><path d="M10 12v.01"/><path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561z"/>',
     back: '<path d="M15 18l-6-6 6-6"/>',
+    next: '<path d="M9 18l6-6-6-6"/>',
     cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a1 1 0 0 0 1 .8h9.6a1 1 0 0 0 1-.8L21 7H6.2"/>',
     alert: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
     save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h8V3M8 21v-7h8v7"/>',
@@ -283,6 +284,8 @@ function setTitle(text) {
 async function route() {
   const { parts, params } = parseHash();
   const [section = "library", id] = parts;
+  // The library grid uses the whole window; other pages keep a readable width.
+  document.documentElement.classList.toggle("is-wide", section === "library" || section === "favorites");
   try {
     if (section === "library" || section === "favorites") {
       await renderLibrary(section, params);
@@ -365,13 +368,14 @@ function libraryShell(mode) {
     </section>
     <div class="result-meta">
       <span id="result-count" aria-live="polite"></span>
+      <nav class="pager" data-pager aria-label="Pages, top"></nav>
       <div class="segmented" role="group" aria-label="Layout">
         <button type="button" data-layout="grid">${icon("grid")} Covers</button>
         <button type="button" data-layout="list">${icon("list")} List</button>
       </div>
     </div>
     <div id="results"></div>
-    <div class="load-more" hidden><button type="button" class="btn" id="load-more">Show more</button></div>`;
+    <nav class="pager pager-bottom" data-pager aria-label="Pages, bottom"></nav>`;
 }
 
 function currentParams() {
@@ -380,6 +384,7 @@ function currentParams() {
 
 function updateParams(mode, changes, { replace = false } = {}) {
   const params = currentParams();
+  if (!("page" in changes)) params.delete("page"); // a new search or filter starts at page 1
   for (const [key, value] of Object.entries(changes)) {
     if (value === null || value === undefined || value === "") params.delete(key);
     else params.set(key, value);
@@ -408,7 +413,6 @@ function bindLibraryToolbar(mode) {
       renderResults();
     });
   }
-  $("#load-more", view).addEventListener("click", () => loadBooks(mode, currentParams(), { append: true }));
   $("#author-filter", view).addEventListener("click", (e) => {
     if (e.target.closest("[data-clear-author]")) updateParams(mode, { author: null });
   });
@@ -479,15 +483,63 @@ function apiQuery(mode, params, offset) {
   };
 }
 
+function pageNumber(params) {
+  const page = Number.parseInt(params.get("page"), 10);
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
+
 let loadToken = 0;
-async function loadBooks(mode, params, { append = false } = {}) {
+async function loadBooks(mode, params) {
   const token = ++loadToken;
-  const offset = append && state.library ? state.library.items.length : 0;
-  const page = await api("/books", { query: apiQuery(mode, params, offset) });
+  const page = pageNumber(params);
+  const previous = state.library;
+  const result = await api("/books", { query: apiQuery(mode, params, (page - 1) * PAGE_SIZE) });
   if (token !== loadToken) return; // a newer request superseded this one
-  const items = append && state.library ? [...state.library.items, ...page.items] : page.items;
-  state.library = { mode, params: params.toString(), items, total: page.total };
+  const pages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
+  if (page > pages) {
+    // Past the end (e.g. after books were removed): show the last page instead.
+    updateParams(mode, { page: pages > 1 ? pages : null }, { replace: true });
+    return;
+  }
+  state.library = { mode, params: params.toString(), items: result.items, total: result.total, page, pages };
   renderResults();
+  const withoutPage = (query) => { const p = new URLSearchParams(query); p.delete("page"); return p.toString(); };
+  const turnedPage = previous?.mode === mode && previous.page !== page
+    && withoutPage(previous.params) === withoutPage(params);
+  if (turnedPage) $(".result-meta", view)?.scrollIntoView({ block: "start" }); // also for the bottom pager
+}
+
+function pageList(page, pages) {
+  // 1 … 4 5 [6] 7 8 … 20
+  const shown = new Set([1, pages]);
+  for (let p = page - 2; p <= page + 2; p++) if (p >= 1 && p <= pages) shown.add(p);
+  const list = [...shown].sort((a, b) => a - b);
+  const out = [];
+  list.forEach((p, i) => {
+    if (i && p - list[i - 1] > 1) out.push(p - list[i - 1] === 2 ? p - 1 : null);
+    out.push(p);
+  });
+  return out;
+}
+
+function pagerHtml(mode, params, page, pages) {
+  if (pages <= 1) return "";
+  const href = (p) => {
+    const next = new URLSearchParams(params);
+    if (p > 1) next.set("page", p); else next.delete("page");
+    return libraryHref(mode, next);
+  };
+  const step = (p, inner, rel, disabled) => disabled
+    ? `<span class="pager-step" aria-disabled="true">${inner}</span>`
+    : `<a class="pager-step" href="${href(p)}" rel="${rel}">${inner}</a>`;
+  const numbers = pageList(page, pages).map((p) => p === null
+    ? '<span class="pager-gap" aria-hidden="true">…</span>'
+    : p === page
+      ? `<span class="pager-page" aria-current="page">${p}</span>`
+      : `<a class="pager-page" href="${href(p)}" aria-label="Page ${p}">${p}</a>`).join("");
+  return step(page - 1, `${icon("back")}Previous`, "prev", page === 1)
+    + `<span class="pager-pages">${numbers}</span>`
+    + step(page + 1, `Next${icon("next")}`, "next", page === pages);
 }
 
 function hasFilters(params) {
@@ -497,10 +549,17 @@ function hasFilters(params) {
 function renderResults() {
   const results = $("#results", view);
   if (!results || !state.library) return;
-  const { mode, items, total } = state.library;
+  const { mode, items, total, page, pages } = state.library;
   const params = new URLSearchParams(state.library.params);
-  $("#result-count", view).textContent = total ? `${plural(total, "book")}${items.length < total ? `, showing ${items.length}` : ""}` : "";
-  $(".load-more", view).hidden = items.length >= total;
+  const first = (page - 1) * PAGE_SIZE + 1;
+  $("#result-count", view).textContent = !total ? ""
+    : pages > 1 ? `${plural(total, "book")} · ${first}–${first + items.length - 1}` : plural(total, "book");
+  // The same pager above and below the books.
+  const pager = pagerHtml(mode, params, page, pages);
+  for (const nav of $$("[data-pager]", view)) {
+    nav.innerHTML = pager;
+    nav.hidden = !pager;
+  }
 
   if (!items.length) {
     if (hasFilters(params)) {
@@ -529,12 +588,10 @@ async function toggleFavorite(button) {
     const book = await api(`/books/${id}`, { method: "PATCH", body: { favorite: next } });
     if (state.library) {
       state.library.items = state.library.items.map((b) => (b.id === id ? book : b));
-      if (state.library.mode === "favorites" && !next) {
-        state.library.items = state.library.items.filter((b) => b.id !== id);
-        state.library.total -= 1;
-      }
     }
-    if (view.dataset.view?.startsWith("library")) renderResults();
+    if (state.library?.mode === "favorites" && !next && view.dataset.view === "library-favorites") {
+      await loadBooks("favorites", currentParams()); // refill the page from the next one
+    } else if (view.dataset.view?.startsWith("library")) renderResults();
     else renderBookDetail(book);
     toast(next ? `“${book.title}” added to favorites` : `“${book.title}” removed from favorites`);
   } catch (error) {

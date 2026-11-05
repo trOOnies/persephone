@@ -28,7 +28,9 @@ are at <http://127.0.0.1:8000/docs>.
 - **Library** with cover grid or list layout, search (title, author, series,
   publisher, ISBN), filters (status, owned / wishlist / lent out, owner, tag,
   author) and sorting (title, author, added, rating, year, finished). The
-  filters live in the URL, so back/forward and bookmarks work.
+  filters live in the URL, so back/forward and bookmarks work. 50 books per
+  page (10 columns x 5 rows on a full-width 1920px window, 5 columns at half
+  width), with the same pager above and below the books.
 - **Book page:** reading status (dates are filled in when you start or finish a
   book), half-star rating (mouse or arrow keys), favorite, start/finish dates,
   review and notes, tags, and full details.

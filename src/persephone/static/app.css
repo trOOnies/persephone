@@ -325,6 +325,8 @@ main {
   padding: 24px 16px 48px;
 }
 main:focus { outline: none; }
+/* Library and Favorites use the full window width for the book grid. */
+.is-wide main, .is-wide .topbar-inner { max-width: 1888px; }
 
 .site-footer {
   padding: 16px 16px 20px;
@@ -507,9 +509,12 @@ fieldset {
 /* ------------------------------------------------------------------ cards -- */
 
 .book-grid {
+  /* As many ~160px columns as fit, but never more than 10: 10 on a full-width
+     1920px window, 5 on half of it. */
+  --gap-x: 18px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 22px 18px;
+  grid-template-columns: repeat(auto-fill, minmax(max(160px, (100% - 9 * var(--gap-x)) / 10), 1fr));
+  gap: 22px var(--gap-x);
 }
 .card {
   position: relative;
@@ -720,7 +725,29 @@ fieldset {
 .row .fav-btn:hover { color: var(--accent); }
 .row .fav-btn[aria-pressed="true"] { background: transparent; color: var(--accent); }
 
-.load-more { display: flex; justify-content: center; margin-top: 24px; }
+.pager { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.pager[hidden] { display: none; }
+.pager-bottom { margin-top: 28px; }
+.pager-pages { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.pager a, .pager span[aria-current], .pager-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+.pager a:hover { border-color: var(--primary); color: var(--primary); }
+.pager span[aria-current] { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); font-weight: 700; }
+.pager-step[aria-disabled="true"] { opacity: 0.45; }
+.pager-gap { padding: 0 2px; color: var(--ink-muted); }
 
 /* ----------------------------------------------------------------- detail -- */
 
