@@ -42,6 +42,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessions = sessions
     app.include_router(router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    settings.covers_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/covers", StaticFiles(directory=settings.covers_dir), name="covers")
 
     @app.middleware("http")
     async def revalidate_frontend(request: Request, call_next):
@@ -54,6 +56,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         path = request.url.path
         if path == "/" or path.startswith("/static/"):
             response.headers["Cache-Control"] = "no-cache"
+        elif path.startswith("/covers/") and response.status_code == 200:
+            # Cover file names change with their content, so they never go stale.
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
     @app.get("/", include_in_schema=False)

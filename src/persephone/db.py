@@ -53,6 +53,21 @@ def _upgrade(engine: Engine) -> None:
         columns = {row[1]: row for row in connection.exec_driver_sql("PRAGMA table_info(books)")}
     if columns["status"][3]:  # NOT NULL: books had to start as "to_read"
         _rebuild_table(engine, "books")
+    _add_missing_columns(engine)
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    """Add new nullable columns to existing tables (``create_all`` only makes tables)."""
+    with engine.begin() as connection:
+        for table in Base.metadata.sorted_tables:
+            info = connection.exec_driver_sql(f"PRAGMA table_info({table.name})")
+            have = {row[1] for row in info}
+            for column in table.columns:
+                if column.name not in have and column.nullable:
+                    kind = column.type.compile(engine.dialect)
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE {table.name} ADD COLUMN {column.name} {kind}"
+                    )
 
 
 def _rebuild_table(engine: Engine, name: str) -> None:

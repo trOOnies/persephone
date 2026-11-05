@@ -14,6 +14,8 @@ serve: ## Run the web app on http://127.0.0.1:8000
 	$(PYTHON) -m persephone.web --reload
 seed: ## Fill the local library with demo data
 	$(PYTHON) -m persephone.seed
+covers: ## Save a local copy of every book cover (FORCE=1 to download all again)
+	$(PYTHON) -m persephone.covers $(if $(FORCE),--force)
 import: ## Import from info/
 	$(PYTHON) -m persephone.importer info
 export-data: ## Download your own data to a JSON file (OWNER=name to add yours)

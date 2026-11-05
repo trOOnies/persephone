@@ -106,6 +106,9 @@ class Book(Base):
     language: Mapped[str | None] = mapped_column(String(50))
     description: Mapped[str | None] = mapped_column(Text)
     cover_url: Mapped[str | None] = mapped_column(String(1000))
+    # Local copy of the cover (see persephone.covers) and the URL it was downloaded from.
+    cover_file: Mapped[str | None] = mapped_column(String(100))
+    cover_source: Mapped[str | None] = mapped_column(String(1000))
     series: Mapped[str | None] = mapped_column(String(255))
     series_index: Mapped[float | None] = mapped_column(Float)
     original_title: Mapped[str | None] = mapped_column(String(500))
@@ -135,6 +138,11 @@ class Book(Base):
     copies: Mapped[list[Copy]] = relationship(
         back_populates="book", cascade="all, delete-orphan", order_by="Copy.id"
     )
+
+    @property
+    def local_cover(self) -> str | None:
+        """URL of the downloaded cover, served by the app."""
+        return f"/covers/{self.cover_file}" if self.cover_file else None
 
     @property
     def authors(self) -> list[str]:

@@ -171,7 +171,9 @@ function confirmDialog(text, okLabel = "Delete") {
 
 function coverHtml(book) {
   const variant = hashString(book.title) % 6;
-  const src = book.cover_url
+  // The downloaded copy first; the online one only until it has been saved.
+  const src = book.local_cover
+    || book.cover_url
     || (state.config.openlibrary && book.isbn
       ? `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(book.isbn)}-L.jpg?default=false`
       : null);
@@ -1365,6 +1367,7 @@ function renderHelp() {
           <li>❤️ Press <span class="help-btn">Add to favorites</span> to keep it on the <strong>Favorites</strong> tab.</li>
           <li>📝 Write a <strong>review or notes</strong>, then press <span class="help-btn">Save notes</span>.</li>
           <li>✏️ Fix any detail (title, tags, cover…) with <span class="help-btn">Edit</span>.</li>
+          <li>🖼️ Covers are <strong>saved on your computer</strong>, so they don't disappear if a website removes them.</li>
         </ul>
       </section>
 
@@ -1479,7 +1482,16 @@ async function renderBackup() {
         <div class="import-result" aria-live="polite"></div>
         <p class="hint">From a terminal: <span class="code">make import-data FILE=…</span>. To import Goodreads or CSV files, put them in <span class="code">info/</span> and run <span class="code">make import</span>.</p>
       </section>
+      <section class="panel" id="covers-panel">
+        <h2>${icon("download")} Covers</h2>
+        <p>Covers are saved on this computer, so they keep working when a shop or Open Library removes the image. New and edited books get theirs automatically.</p>
+        <p class="covers-status" aria-live="polite">Checking…</p>
+        <div><button type="button" class="btn btn-secondary" id="download-covers">${icon("download")} Download missing covers</button></div>
+        <p class="hint">From a terminal: <span class="code">make covers</span>. The files are kept in <span class="code" id="covers-folder">local/covers</span>; back up that folder together with your export.</p>
+      </section>
     </div>`;
+  refreshCoverStatus();
+  $("#download-covers", view).addEventListener("click", downloadCovers);
 
   const exportLink = $("#export-link", view);
   $("#export-owner", view).addEventListener("change", (e) => {
@@ -1495,6 +1507,45 @@ async function renderBackup() {
     drop.classList.remove("is-over");
     if (e.dataTransfer.files[0]) importFile(e.dataTransfer.files[0]);
   });
+}
+
+async function refreshCoverStatus() {
+  const box = $(".covers-status", view);
+  if (!box) return null;
+  try {
+    const status = await api("/covers");
+    $("#covers-folder", view).textContent = status.folder;
+    box.textContent = `${plural(status.saved, "cover")} saved`
+      + (status.pending ? `, ${status.pending} still to download` : "")
+      + (status.unavailable ? `. ${plural(status.unavailable, "book has", "books have")} no cover online` : "")
+      + (status.pending ? "." : ". All done.");
+    $("#download-covers", view).disabled = !status.pending;
+    return status;
+  } catch (error) {
+    box.textContent = error.message;
+    return null;
+  }
+}
+
+async function downloadCovers() {
+  const button = $("#download-covers", view);
+  button.disabled = true;
+  $(".covers-status", view).textContent = "Downloading covers…";
+  try {
+    await api("/covers/download", { method: "POST" });
+  } catch (error) {
+    toast(error.message, { error: true });
+  }
+  // The download runs on the server; check back until it stops making progress.
+  let last = -1;
+  for (let i = 0; i < 60 && view.dataset.view === "data"; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const status = await refreshCoverStatus();
+    if (!status || !status.pending || status.saved === last) break;
+    last = status.saved;
+  }
+  const status = await refreshCoverStatus();
+  if (status) toast(status.pending ? `${plural(status.pending, "cover")} could not be downloaded right now` : "All covers are saved");
 }
 
 async function importFile(file) {

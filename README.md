@@ -47,6 +47,9 @@ are at <http://127.0.0.1:8000/docs>.
 - **ISBN lookup** on [Open Library](https://openlibrary.org) to fill in the
   add-book form, plus Open Library covers for books that have an ISBN.
   Turn both off with `PERSEPHONE_OPENLIBRARY=0`.
+- **Covers are saved locally** (in `local/covers/`, next to the database), so
+  they keep working when the original link breaks. New and edited books get
+  theirs in the background; `make covers` or the Backup page fetches the rest.
 - **Help** page written for non-technical users, plus an **API** tab that opens
   the interactive API docs.
 - Light and dark themes (follows the system, with a toggle). Keyboard
@@ -61,6 +64,7 @@ ISBNs are validated and stored as ISBN-13, so `0-441-17271-7` and
 | --- | --- |
 | `make serve` | Run the app with auto-reload (`python -m persephone.web --help` for host/port/db) |
 | `make seed` | Add demo books (safe to run twice) |
+| `make covers [FORCE=1]` | Save a local copy of every book cover |
 | `make import` | Import `info/books.yaml` and every `.csv` / `.json` file in `info/` |
 | `make export-data [OWNER=name]` | Back up the library to `local/persephone-export-….json` |
 | `make import-data FILE=path` | Restore / merge a backup |
@@ -146,6 +150,8 @@ Restoring merges into the current library. Matching books take the file's
 personal data (status, rating, favorite, dates, review), have missing details
 filled in, gain the file's tags and get any missing copies. Unknown books are
 created. Backups can also be downloaded and restored from the *Backup* page.
+The export keeps each book's cover link but not the image files: copy
+`local/covers/` along with it, or run `make covers` after restoring.
 
 ## Configuration
 
@@ -155,6 +161,7 @@ created. Backups can also be downloaded and restored from the *Backup* page.
 | `PERSEPHONE_DATABASE_URL` | – | Full SQLAlchemy URL, overrides `PERSEPHONE_DB` |
 | `PERSEPHONE_OWNER` | `Me` | Owner of new copies when none is given |
 | `PERSEPHONE_OPENLIBRARY` | `1` | `0` disables ISBN lookups and Open Library covers |
+| `PERSEPHONE_COVERS` | `covers/` next to the database | Folder for downloaded covers |
 | `PERSEPHONE_CURRENCY` | `$` | Symbol shown next to prices in the Budget tab |
 
 The schema is created automatically on start-up, new tables included, and older
@@ -170,6 +177,7 @@ src/persephone/
   api.py          JSON API under /api
   services.py     business logic shared by the API and the CLIs
   budget.py       Budget tab: carts, prices and their effect on ownership
+  covers.py       local copies of the book covers
   models.py       SQLAlchemy models (Book, Author, Publisher, Tag, Copy, Cart)
   schemas.py      Pydantic request/response models and validation
   importer.py     info/ importer (YAML, Goodreads, CSV, JSON)
@@ -191,7 +199,7 @@ min_rating`, `sort`, `order`, `limit`, `offset`) ·
 `GET /api/carts | /api/carts/active | /api/carts/{id}` · `POST /api/carts/active/items` ·
 `PATCH/DELETE /api/carts/{id}` · `POST /api/carts/{id}/save | buy | edit` ·
 `PATCH/DELETE /api/cart-items/{id}` ·
-`GET /api/export` · `POST /api/import`.
+`GET /api/covers` · `POST /api/covers/download` · `GET /api/export` · `POST /api/import`.
 
 ## Theme
 

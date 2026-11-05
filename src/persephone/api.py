@@ -19,11 +19,13 @@ from fastapi import (
     Response,
 )
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from persephone import __version__, budget, openlibrary, services, userdata
+from persephone import __version__, budget, covers, openlibrary, services, userdata
 from persephone import isbn as isbn_utils
 from persephone.config import Settings
+from persephone.models import Book
 from persephone.schemas import (
     AppConfig,
     AuthorOut,
@@ -38,6 +40,7 @@ from persephone.schemas import (
     CopyCreate,
     CopyOut,
     CopyUpdate,
+    CoverStatus,
     ImportSummary,
     NameCount,
     PublisherOut,
@@ -83,6 +86,23 @@ def _copy_or_404(session: Session, copy_id: int):
         return services.get_copy(session, copy_id)
     except services.NotFoundError as exc:
         raise HTTPException(status_code=404, detail="Copy not found") from exc
+
+
+def _save_covers_later(
+    request: Request,
+    background: BackgroundTasks,
+    session: Session,
+    book_ids: list[int] | None = None,
+) -> None:
+    """Download covers once the response is sent (all books when ``book_ids`` is None)."""
+    session.commit()  # the task reads the books with a session of its own
+    background.add_task(
+        covers.download_all,
+        request.app.state.sessions,
+        request.app.state.settings,
+        book_ids=book_ids,
+        fetch=getattr(request.app.state, "cover_fetch", None) or covers.fetch_image,
+    )
 
 
 def _book_out(session: Session, book_id: int) -> BookOut:
@@ -170,11 +190,18 @@ def list_books(
 
 
 @router.post("/books", response_model=BookOut, status_code=201, tags=["books"])
-def create_book(data: BookCreate, session: SessionDep, settings: SettingsDep) -> BookOut:
+def create_book(
+    data: BookCreate,
+    session: SessionDep,
+    settings: SettingsDep,
+    request: Request,
+    background: BackgroundTasks,
+) -> BookOut:
     try:
         book = services.create_book(session, data, settings.default_owner)
     except services.ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    _save_covers_later(request, background, session, [book.id])
     return _book_out(session, book.id)
 
 
@@ -184,7 +211,13 @@ def get_book(book_id: int, session: SessionDep) -> BookOut:
 
 
 @router.patch("/books/{book_id}", response_model=BookOut, tags=["books"])
-def update_book(book_id: int, data: BookUpdate, session: SessionDep) -> BookOut:
+def update_book(
+    book_id: int,
+    data: BookUpdate,
+    session: SessionDep,
+    request: Request,
+    background: BackgroundTasks,
+) -> BookOut:
     book = _book_or_404(session, book_id)
     try:
         services.update_book(session, book, data)
@@ -192,12 +225,19 @@ def update_book(book_id: int, data: BookUpdate, session: SessionDep) -> BookOut:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if {"cover_url", "isbn"} & data.model_fields_set:
+        _save_covers_later(request, background, session, [book_id])
     return _book_out(session, book_id)
 
 
 @router.delete("/books/{book_id}", status_code=204, tags=["books"])
-def delete_book(book_id: int, session: SessionDep) -> Response:
-    services.delete_book(session, _book_or_404(session, book_id))
+def delete_book(book_id: int, session: SessionDep, settings: SettingsDep) -> Response:
+    book = _book_or_404(session, book_id)
+    cover_file = book.cover_file
+    services.delete_book(session, book)
+    session.commit()
+    if cover_file:
+        (settings.covers_dir / cover_file).unlink(missing_ok=True)
     return Response(status_code=204)
 
 
@@ -366,6 +406,30 @@ def lookup_isbn(isbn: str, request: Request, settings: SettingsDep) -> BookCreat
     return BookCreate.model_validate(found)
 
 
+# ---------------------------------------------------------------- covers ---
+
+
+@router.get("/covers", response_model=CoverStatus, tags=["covers"])
+def cover_status(session: SessionDep, settings: SettingsDep) -> CoverStatus:
+    """How many book covers have a local copy."""
+    books = session.scalars(select(Book)).unique().all()
+    saved = sum(1 for book in books if book.cover_file)
+    pending = sum(1 for book in books if covers.needs_download(book, settings))
+    missing = sum(1 for book in books if covers.unavailable(book, settings))
+    return CoverStatus(
+        folder=str(settings.covers_dir), saved=saved, pending=pending, unavailable=missing
+    )
+
+
+@router.post("/covers/download", status_code=202, tags=["covers"])
+def download_covers(
+    request: Request, background: BackgroundTasks, session: SessionDep
+) -> dict[str, str]:
+    """Download every missing cover in the background."""
+    _save_covers_later(request, background, session)
+    return {"status": "started"}
+
+
 # ---------------------------------------------------------------- backup ---
 
 
@@ -383,9 +447,13 @@ def import_data(
     payload: Annotated[dict[str, Any] | list[Any], Body()],
     session: SessionDep,
     settings: SettingsDep,
+    request: Request,
+    background: BackgroundTasks,
 ) -> ImportSummary:
     """Restore a file made by ``/api/export`` (or ``make export-data``)."""
     try:
-        return userdata.import_data(session, payload, default_owner=settings.default_owner)
+        summary = userdata.import_data(session, payload, default_owner=settings.default_owner)
     except userdata.FormatError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _save_covers_later(request, background, session)
+    return summary

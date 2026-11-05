@@ -221,6 +221,9 @@ class BookOut(BaseModel):
     language: str | None
     description: str | None
     cover_url: str | None
+    local_cover: str | None = Field(
+        default=None, description="The downloaded copy of the cover, once it has been saved"
+    )
     series: str | None
     series_index: float | None
     original_title: str | None
@@ -332,6 +335,13 @@ class Stats(BaseModel):
     lent_out: int
     top_authors: list[NameCount]
     top_tags: list[NameCount]
+
+
+class CoverStatus(BaseModel):
+    folder: str = Field(description="Where the downloaded covers are kept")
+    saved: int = Field(description="Books whose cover has a local copy")
+    pending: int = Field(description="Books with a cover that still has to be downloaded")
+    unavailable: int = Field(description="Books whose cover link or ISBN had no image online")
 
 
 class AppConfig(BaseModel):

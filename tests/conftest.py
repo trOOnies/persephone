@@ -35,6 +35,7 @@ def settings(db_path) -> Settings:
 def app(settings):
     app = create_app(settings)
     app.state.openlibrary_fetch = _no_network
+    app.state.cover_fetch = lambda url: None  # no covers anywhere, unless a test says so
     return app
 
 
