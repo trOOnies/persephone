@@ -15,6 +15,7 @@ from persephone import isbn as isbn_utils
 from persephone.config import Settings
 from persephone.schemas import (
     AppConfig,
+    AuthorOut,
     BookCreate,
     BookOut,
     BookPage,
@@ -24,6 +25,7 @@ from persephone.schemas import (
     CopyUpdate,
     ImportSummary,
     NameCount,
+    PublisherOut,
     Stats,
     Status,
 )
@@ -185,9 +187,16 @@ def delete_copy(copy_id: int, session: SessionDep) -> Response:
 # ---------------------------------------------------------------- facets ---
 
 
-@router.get("/authors", response_model=list[NameCount], tags=["facets"])
-def list_authors(session: SessionDep) -> list[NameCount]:
+@router.get("/authors", response_model=list[AuthorOut], tags=["facets"])
+def list_authors(session: SessionDep) -> list[AuthorOut]:
+    """Authors with their number of books and details (gender, origin, years)."""
     return services.list_authors(session)
+
+
+@router.get("/publishers", response_model=list[PublisherOut], tags=["facets"])
+def list_publishers(session: SessionDep) -> list[PublisherOut]:
+    """Publishers named by books or described by an import, with their book counts."""
+    return services.list_publishers(session)
 
 
 @router.get("/tags", response_model=list[NameCount], tags=["facets"])

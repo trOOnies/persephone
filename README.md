@@ -89,7 +89,7 @@ you made in the app are kept. Copies are created for `--owner` (default:
 ### Backups (`make export-data` / `make import-data`)
 
 The export is a complete JSON snapshot: book details, status, rating, favorite,
-dates, review, tags and copies. With `OWNER=name` only that person's copies are
+dates, review, tags and copies, plus author and publisher details. With `OWNER=name` only that person's copies are
 included (all books are still exported) and the file is labelled with their
 name, which is useful for handing over "your" part of a shared library.
 
@@ -117,7 +117,7 @@ src/persephone/
   web.py          FastAPI app factory and `python -m persephone.web`
   api.py          JSON API under /api
   services.py     business logic shared by the API and the CLIs
-  models.py       SQLAlchemy models (Book, Author, Tag, Copy)
+  models.py       SQLAlchemy models (Book, Author, Publisher, Tag, Copy)
   schemas.py      Pydantic request/response models and validation
   importer.py     info/ importer (Goodreads, CSV, JSON)
   userdata.py     JSON backup and restore
@@ -133,8 +133,8 @@ tests/            pytest suite
 `GET/POST /api/books` (filters: `q status favorite owned owner author tag lent
 min_rating`, `sort`, `order`, `limit`, `offset`) ·
 `GET/PATCH/DELETE /api/books/{id}` · `POST /api/books/{id}/copies` ·
-`PATCH/DELETE /api/copies/{id}` · `GET /api/authors | /api/tags | /api/owners |
-/api/stats | /api/config` · `GET /api/lookup/isbn/{isbn}` ·
+`PATCH/DELETE /api/copies/{id}` · `GET /api/authors | /api/publishers | /api/tags |
+/api/owners | /api/stats | /api/config` (authors and publishers include their details) · `GET /api/lookup/isbn/{isbn}` ·
 `GET /api/export` · `POST /api/import`.
 
 ## Theme

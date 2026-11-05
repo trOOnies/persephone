@@ -10,14 +10,18 @@ from typing import Literal
 from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from persephone.models import Author, Book, BookAuthor, Copy, Tag, book_tags, utcnow
+from persephone.models import Author, Book, BookAuthor, Copy, Publisher, Tag, book_tags, utcnow
 from persephone.schemas import (
+    AuthorDetails,
+    AuthorOut,
     BookCreate,
     BookUpdate,
     CopyCreate,
     CopyUpdate,
     Format,
     NameCount,
+    PublisherDetails,
+    PublisherOut,
     Stats,
     Status,
     YearCount,
@@ -48,6 +52,8 @@ CATALOG_FIELDS = (
     "original_year",
     "translator",
 )
+AUTHOR_FIELDS = ("gender", "origin", "year_born", "year_deceased")
+PUBLISHER_FIELDS = ("origin", "year_created", "year_closed")
 PERSONAL_FIELDS = ("status", "rating", "favorite", "started_on", "finished_on", "review")
 COPY_FIELDS = ("owner", "format", "location", "acquired_on", "lent_to", "notes")
 
@@ -319,14 +325,35 @@ def delete_copy(session: Session, copy: Copy) -> None:
 # ----------------------------------------------------------------- lookup ---
 
 
-def list_authors(session: Session) -> list[NameCount]:
+def list_authors(session: Session) -> list[AuthorOut]:
     rows = session.execute(
-        select(Author.name, func.count(BookAuthor.book_id))
+        select(Author, func.count(BookAuthor.book_id))
         .join(BookAuthor, BookAuthor.author_id == Author.id)
         .group_by(Author.id)
         .order_by(func.lower(Author.name))
     )
-    return [NameCount(name=name, count=count) for name, count in rows]
+    return [
+        AuthorOut(name=author.name, count=count, **{f: getattr(author, f) for f in AUTHOR_FIELDS})
+        for author, count in rows
+    ]
+
+
+def list_publishers(session: Session) -> list[PublisherOut]:
+    """Every publisher named by a book or described in the publishers table."""
+    counts = session.execute(
+        select(Book.publisher, func.count(Book.id))
+        .where(Book.publisher.is_not(None))
+        .group_by(func.lower(Book.publisher))
+    )
+    found: dict[str, PublisherOut] = {
+        name.casefold(): PublisherOut(name=name, count=count) for name, count in counts
+    }
+    for publisher in session.scalars(select(Publisher)):
+        details = {f: getattr(publisher, f) for f in PUBLISHER_FIELDS}
+        key = publisher.name.casefold()
+        count = found[key].count if key in found else 0
+        found[key] = PublisherOut(name=publisher.name, count=count, **details)
+    return sorted(found.values(), key=lambda item: item.name.casefold())
 
 
 def list_tags(session: Session) -> list[NameCount]:
@@ -383,7 +410,10 @@ def stats(session: Session) -> Stats:
     copies_by_format.update(_counts(session, Copy.format, Copy))
     lent_out = session.scalar(select(func.count(Copy.id)).where(Copy.lent_to.is_not(None))) or 0
 
-    top_authors = sorted(list_authors(session), key=lambda item: (-item.count, item.name))[:10]
+    top_authors = [
+        NameCount(name=item.name, count=item.count)
+        for item in sorted(list_authors(session), key=lambda item: (-item.count, item.name))[:10]
+    ]
     top_tags = sorted(list_tags(session), key=lambda item: (-item.count, item.name))[:10]
 
     return Stats(
@@ -533,3 +563,44 @@ def upsert_book(
         overwrite_personal=overwrite_personal,
     )
     return existing, "updated" if changed else "unchanged"
+
+
+# ---------------------------------------------------- authors & publishers ---
+
+
+def _merge_details(target, data, fields: tuple[str, ...], overwrite: bool) -> bool:
+    """Copy ``fields`` from ``data`` onto ``target``: only into empty ones unless ``overwrite``."""
+    changed = False
+    for name in fields:
+        value = getattr(data, name)
+        current = getattr(target, name)
+        if value is not None and value != current and (overwrite or current is None):
+            setattr(target, name, value)
+            changed = True
+    return changed
+
+
+def merge_author_details(session: Session, data: AuthorDetails, *, overwrite: bool = False) -> bool:
+    """Fill in an author's details; return whether anything changed.
+
+    Authors only exist while a book references them, so details for an author
+    with no books are ignored.
+    """
+    author = session.scalar(select(Author).where(func.lower(Author.name) == data.name.lower()))
+    if author is None:
+        return False
+    return _merge_details(author, data, AUTHOR_FIELDS, overwrite)
+
+
+def merge_publisher_details(
+    session: Session, data: PublisherDetails, *, overwrite: bool = False
+) -> bool:
+    """Create the publisher or fill in its details; return whether anything changed."""
+    publisher = session.scalar(
+        select(Publisher).where(func.lower(Publisher.name) == data.name.lower())
+    )
+    if publisher is None:
+        session.add(Publisher(name=data.name, **{f: getattr(data, f) for f in PUBLISHER_FIELDS}))
+        session.flush()
+        return True
+    return _merge_details(publisher, data, PUBLISHER_FIELDS, overwrite)

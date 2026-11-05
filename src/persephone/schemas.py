@@ -254,6 +254,63 @@ class NameCount(BaseModel):
     count: int
 
 
+Year = Annotated[int | None, Field(default=None, ge=-3000, le=3000)]
+
+
+def _check_years(first: int | None, last: int | None, what: str) -> None:
+    if first is not None and last is not None and last < first:
+        raise ValueError(what)
+
+
+class AuthorDetails(BaseModel):
+    """What Persephone knows about an author, besides their books."""
+
+    name: str = Field(min_length=1, max_length=255)
+    gender: OptStr = Field(default=None, max_length=50)
+    origin: OptStr = Field(default=None, max_length=100, description="Country or region")
+    year_born: Year = None
+    year_deceased: Year = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_name(cls, value: Any) -> Any:
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _check_dates(self):
+        _check_years(self.year_born, self.year_deceased, "year_deceased cannot be before year_born")
+        return self
+
+
+class PublisherDetails(BaseModel):
+    """What Persephone knows about a publisher."""
+
+    name: str = Field(min_length=1, max_length=255)
+    origin: OptStr = Field(default=None, max_length=100, description="Country or region")
+    year_created: Year = None
+    year_closed: Year = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_name(cls, value: Any) -> Any:
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _check_dates(self):
+        _check_years(
+            self.year_created, self.year_closed, "year_closed cannot be before year_created"
+        )
+        return self
+
+
+class AuthorOut(AuthorDetails):
+    count: int
+
+
+class PublisherOut(PublisherDetails):
+    count: int
+
+
 class YearCount(BaseModel):
     year: int
     count: int

@@ -34,9 +34,10 @@ def test_openapi_schema(client):
 def test_facets(client, add_book):
     add_book("A", authors=["Ovid", "Homer"], tags=["poetry", "myth"])
     add_book("B", authors=["Homer"], tags=["myth"])
+    no_details = {"gender": None, "origin": None, "year_born": None, "year_deceased": None}
     assert client.get("/api/authors").json() == [
-        {"name": "Homer", "count": 2},
-        {"name": "Ovid", "count": 1},
+        {"name": "Homer", "count": 2, **no_details},
+        {"name": "Ovid", "count": 1, **no_details},
     ]
     assert client.get("/api/tags").json() == [
         {"name": "myth", "count": 2},
@@ -186,3 +187,13 @@ def test_import_endpoint_rejects_foreign_json(client):
     response = client.post("/api/import", json={"hello": "world"})
     assert response.status_code == 422
     assert "Persephone export" in response.json()["detail"]
+
+
+def test_publishers_facet(client, add_book):
+    add_book("A", publisher="Ace")
+    add_book("B", publisher="ace")
+    add_book("C", publisher="Tor")
+    assert client.get("/api/publishers").json() == [
+        {"name": "Ace", "count": 2, "origin": None, "year_created": None, "year_closed": None},
+        {"name": "Tor", "count": 1, "origin": None, "year_created": None, "year_closed": None},
+    ]

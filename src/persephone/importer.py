@@ -371,6 +371,12 @@ def import_file(session: Session, path: Path, *, default_owner: str) -> ImportSu
         )
         part.errors = [error.replace(" #1", "", 1) for error in part.errors]
         summary = summary.merge(part)
+    if path.suffix.lower() == ".json" and isinstance(payload, dict):
+        summary.errors += userdata.import_details(
+            session,
+            authors=userdata._numbered(payload.get("authors"), f"{path.name} author"),
+            publishers=userdata._numbered(payload.get("publishers"), f"{path.name} publisher"),
+        )
     return summary
 
 

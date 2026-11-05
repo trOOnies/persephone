@@ -167,3 +167,87 @@ def test_cli_import_errors(tmp_path, capsys):
     bad.write_text("{}")
     assert userdata.main(["--db", db, "import", str(bad)]) == 1
     assert "not a Persephone export" in capsys.readouterr().err
+
+
+def test_author_and_publisher_details_round_trip(add_book, session, tmp_path):
+    from persephone import services
+    from persephone.schemas import AuthorDetails, PublisherDetails
+
+    add_book("Ficciones", authors=["Jorge Luis Borges"], publisher="Sur")
+    add_book(
+        "Metamorphoses",
+        authors=["Ovid"],
+        original_title="Metamorphoseon libri",
+        original_language="Latin",
+        original_year=8,
+        translator="David Raeburn",
+    )
+    session.expire_all()
+    assert services.merge_author_details(
+        session,
+        AuthorDetails(
+            name="jorge luis borges",
+            gender="male",
+            origin="Argentina",
+            year_born=1899,
+            year_deceased=1986,
+        ),
+    )
+    assert not services.merge_author_details(session, AuthorDetails(name="Nobody", gender="x"))
+    assert services.merge_publisher_details(
+        session,
+        PublisherDetails(name="Sur", origin="Argentina", year_created=1931, year_closed=1992),
+    )
+    session.commit()
+
+    payload = userdata.export_data(session)
+    assert payload["authors"] == [
+        {
+            "name": "Jorge Luis Borges",
+            "gender": "male",
+            "origin": "Argentina",
+            "year_born": 1899,
+            "year_deceased": 1986,
+        },
+    ]  # Ovid has no details, so is left out
+    assert payload["publishers"] == [
+        {"name": "Sur", "origin": "Argentina", "year_created": 1931, "year_closed": 1992},
+    ]
+    ovid = next(book for book in payload["books"] if book["title"] == "Metamorphoses")
+    assert (ovid["original_title"], ovid["original_year"], ovid["translator"]) == (
+        "Metamorphoseon libri",
+        8,
+        "David Raeburn",
+    )
+
+    other = open_database(f"sqlite:///{tmp_path / 'other.db'}")
+    with session_scope(other) as fresh:
+        payload["authors"].append({"name": "Ovid", "year_born": 1, "year_deceased": -5})
+        summary = userdata.import_data(fresh, payload, default_owner="Me")
+        assert summary.created == 2
+        assert summary.errors == [
+            "author #2: record: Value error, year_deceased cannot be before year_born"
+        ]
+        assert userdata.export_data(fresh)["authors"] == payload["authors"][:1]
+        assert userdata.export_data(fresh)["publishers"] == payload["publishers"]
+
+
+def test_details_fill_gaps_unless_overwriting(add_book, session):
+    from persephone import services
+    from persephone.schemas import AuthorDetails, PublisherDetails
+
+    add_book("A", authors=["Ovid"])
+    session.expire_all()
+    services.merge_author_details(session, AuthorDetails(name="Ovid", origin="Rome"))
+    assert not services.merge_author_details(session, AuthorDetails(name="Ovid", origin="Sulmo"))
+    assert services.merge_author_details(
+        session, AuthorDetails(name="Ovid", origin="Sulmo", year_born=-43), overwrite=True
+    )
+    services.merge_publisher_details(session, PublisherDetails(name="Penguin"))
+    assert services.merge_publisher_details(
+        session, PublisherDetails(name="penguin", year_created=1935)
+    )
+    (ovid,) = services.list_authors(session)
+    assert (ovid.origin, ovid.year_born) == ("Sulmo", -43)
+    (penguin,) = services.list_publishers(session)
+    assert (penguin.name, penguin.year_created, penguin.count) == ("Penguin", 1935, 0)

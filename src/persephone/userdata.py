@@ -18,18 +18,25 @@ import datetime as dt
 import json
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from persephone import __version__, services
 from persephone.cli import add_common_arguments, open_from_args
 from persephone.db import session_scope
-from persephone.models import Book
-from persephone.schemas import BookCreate, BookOut, ImportSummary
+from persephone.models import Author, Book, BookAuthor, Publisher
+from persephone.schemas import (
+    AuthorDetails,
+    BookCreate,
+    BookOut,
+    ImportSummary,
+    PublisherDetails,
+)
 
 FORMAT_NAME = "persephone-export"
 FORMAT_VERSION = 1
@@ -91,7 +98,34 @@ def export_data(session: Session, owner: str | None = None) -> dict[str, Any]:
         "exported_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "owner": owner,
         "books": [book_record(book, owner) for book in books],
+        "authors": author_records(session),
+        "publishers": publisher_records(session),
     }
+
+
+def _has_details(record: dict[str, Any]) -> bool:
+    return any(value is not None for key, value in record.items() if key != "name")
+
+
+def author_records(session: Session) -> list[dict[str, Any]]:
+    """The authors that have any details (gender, origin, years), by name."""
+    authors = session.scalars(
+        select(Author)
+        .where(Author.id.in_(select(BookAuthor.author_id)))
+        .order_by(func.lower(Author.name))
+    )
+    records = [
+        {"name": a.name, **{f: getattr(a, f) for f in services.AUTHOR_FIELDS}} for a in authors
+    ]
+    return [record for record in records if _has_details(record)]
+
+
+def publisher_records(session: Session) -> list[dict[str, Any]]:
+    publishers = session.scalars(select(Publisher).order_by(func.lower(Publisher.name)))
+    return [
+        {"name": p.name, **{f: getattr(p, f) for f in services.PUBLISHER_FIELDS}}
+        for p in publishers
+    ]
 
 
 def default_filename(owner: str | None, today: dt.date) -> str:
@@ -147,11 +181,7 @@ def import_data(
         try:
             data = BookCreate.model_validate(record)
         except ValidationError as exc:
-            problems = "; ".join(
-                f"{'.'.join(str(p) for p in err['loc']) or 'record'}: {err['msg']}"
-                for err in exc.errors()
-            )
-            summary.errors.append(f"{label}: {problems}")
+            summary.errors.append(f"{label}: {_problems(exc)}")
             continue
         book, result = services.upsert_book(
             session, data, default_owner=default_owner, overwrite_personal=overwrite_personal
@@ -161,8 +191,54 @@ def import_data(
             if added_at is not None:
                 book.created_at = added_at
         setattr(summary, result, getattr(summary, result) + 1)
+    if isinstance(payload, dict) and payload.get("format") == FORMAT_NAME:
+        summary.errors += import_details(
+            session,
+            authors=_numbered(payload.get("authors"), "author"),
+            publishers=_numbered(payload.get("publishers"), "publisher"),
+            overwrite=overwrite_personal,
+        )
     session.flush()
     return summary
+
+
+def _problems(exc: ValidationError) -> str:
+    return "; ".join(
+        f"{'.'.join(str(p) for p in err['loc']) or 'record'}: {err['msg']}" for err in exc.errors()
+    )
+
+
+def _numbered(items: Any, label: str) -> list[tuple[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    return [(f"{label} #{index}", item) for index, item in enumerate(items, start=1)]
+
+
+def import_details(
+    session: Session,
+    *,
+    authors: Iterable[tuple[str, Any]] = (),
+    publishers: Iterable[tuple[str, Any]] = (),
+    overwrite: bool = False,
+) -> list[str]:
+    """Merge ``(label, record)`` author and publisher details; return the errors.
+
+    Details only fill empty fields unless ``overwrite`` is set. Import the books
+    first: details for an author that has no books are ignored.
+    """
+    errors: list[str] = []
+    for items, schema, merge in (
+        (authors, AuthorDetails, services.merge_author_details),
+        (publishers, PublisherDetails, services.merge_publisher_details),
+    ):
+        for label, item in items:
+            try:
+                data = schema.model_validate(item)
+            except ValidationError as exc:
+                errors.append(f"{label}: {_problems(exc)}")
+                continue
+            merge(session, data, overwrite=overwrite)
+    return errors
 
 
 def print_summary(summary: ImportSummary, out=None, *, show_errors: bool = True) -> None:

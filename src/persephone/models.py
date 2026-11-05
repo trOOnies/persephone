@@ -43,6 +43,10 @@ class Author(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    gender: Mapped[str | None] = mapped_column(String(50))
+    origin: Mapped[str | None] = mapped_column(String(100))
+    year_born: Mapped[int | None] = mapped_column(Integer)
+    year_deceased: Mapped[int | None] = mapped_column(Integer)
 
     book_links: Mapped[list[BookAuthor]] = relationship(
         back_populates="author", cascade="all, delete-orphan"
@@ -64,6 +68,18 @@ class BookAuthor(Base):
 
     book: Mapped[Book] = relationship(back_populates="author_links")
     author: Mapped[Author] = relationship(back_populates="book_links", lazy="joined")
+
+
+class Publisher(Base):
+    """Details about a publisher. Books name theirs in ``Book.publisher``, matched by name."""
+
+    __tablename__ = "publishers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    origin: Mapped[str | None] = mapped_column(String(100))
+    year_created: Mapped[int | None] = mapped_column(Integer)
+    year_closed: Mapped[int | None] = mapped_column(Integer)
 
 
 class Tag(Base):
