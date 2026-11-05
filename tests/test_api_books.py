@@ -88,6 +88,15 @@ def test_update_can_clear_rating(client, add_book):
     assert response.json()["rating"] is None
 
 
+def test_status_starts_empty_and_can_be_cleared(client, add_book):
+    book = add_book()
+    assert book["status"] is None
+    planned = client.patch(f"/api/books/{book['id']}", json={"status": "to_read"}).json()
+    assert planned["status"] == "to_read"
+    cleared = client.patch(f"/api/books/{book['id']}", json={"status": None}).json()
+    assert cleared["status"] is None
+
+
 def test_update_validation(client, add_book):
     book = add_book(started_on="2024-05-10")
     url = f"/api/books/{book['id']}"

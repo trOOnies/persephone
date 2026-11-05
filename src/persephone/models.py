@@ -114,7 +114,7 @@ class Book(Base):
     translator: Mapped[str | None] = mapped_column(String(255))
 
     # Personal data
-    status: Mapped[str] = mapped_column(String(20), default="to_read", index=True)
+    status: Mapped[str | None] = mapped_column(String(20), index=True)  # None: not chosen yet
     rating: Mapped[float | None] = mapped_column(Float)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     started_on: Mapped[dt.date | None] = mapped_column(Date)

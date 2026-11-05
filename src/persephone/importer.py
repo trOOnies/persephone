@@ -190,7 +190,7 @@ def goodreads_record(row: dict[str, Any], owner: str | None = None) -> dict[str,
     review = _text(row.get("My Review"))
     if review:
         review = re.sub(r"<br\s*/?>", "\n", review).strip()
-    status = _status(exclusive) or Status.TO_READ
+    status = _status(exclusive)
     owned = _int(row.get("Owned Copies")) or 0
     added = _date(row.get("Date Added"))
     return {
@@ -205,7 +205,7 @@ def goodreads_record(row: dict[str, Any], owner: str | None = None) -> dict[str,
         "original_year": _int(row.get("Original Publication Year")),
         "pages": _int(row.get("Number of Pages")) or None,
         "rating": _rating(row.get("My Rating")),
-        "status": status.value,
+        "status": status.value if status else None,
         "favorite": bool(set(shelves) & _FAVORITE_SHELVES),
         "finished_on": _date(row.get("Date Read")) if status == Status.READ else None,
         "review": review,
@@ -291,7 +291,7 @@ def generic_record(row: dict[str, Any], owner: str | None = None) -> dict[str, A
 
     status = _status(row.get("status"))
     if status is None:
-        status = Status.READ if _date(row.get("finished_on")) else Status.TO_READ
+        status = Status.READ if _date(row.get("finished_on")) else None
     added = _date(row.get("added_at"))
     return {
         "title": title,
@@ -310,7 +310,7 @@ def generic_record(row: dict[str, Any], owner: str | None = None) -> dict[str, A
         "original_language": _text(row.get("original_language")),
         "original_year": _int(row.get("original_year")),
         "translator": "; ".join(_list(row.get("translator"))) or None,
-        "status": status.value,
+        "status": status.value if status else None,
         "rating": _rating(row.get("rating")),
         "favorite": bool(_bool(row.get("favorite"))),
         "tags": _list(row.get("tags"), _TAG_SPLIT),

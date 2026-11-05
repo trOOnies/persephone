@@ -219,7 +219,7 @@ function bookCard(book) {
       </a>
       <div class="card-meta">
         ${book.rating ? `<span title="${esc(ratingText(book.rating))}">${starsHtml(book.rating, { size: "0.9rem" })}<span class="visually-hidden">${esc(ratingText(book.rating))}</span></span>` : ""}
-        ${book.status !== "to_read" ? statusPill(book.status) : ""}
+        ${book.status ? statusPill(book.status) : ""}
         ${isLent(book) ? '<span class="pill lent">Lent</span>' : ""}
       </div>
       ${favButton(book)}
@@ -244,7 +244,7 @@ function bookRow(book) {
       <div class="row-authors">${esc(book.authors.join(", "))}</div>
       <div class="row-rating" title="${esc(ratingText(book.rating))}">${book.rating ? starsHtml(book.rating, { size: "0.85rem" }) : ""}</div>
       <div class="card-meta">
-        ${statusPill(book.status)}
+        ${book.status ? statusPill(book.status) : ""}
         ${book.owned ? `<span class="pill owned">${plural(book.copies.length, "copy", "copies")}</span>` : ""}
       </div>
       ${favButton(book)}
@@ -705,7 +705,7 @@ function setStatus(status) {
   const changes = { status };
   if (status === "reading" && !book.started_on) changes.started_on = today();
   if (status === "read" && !book.finished_on) changes.finished_on = today();
-  patchBook(changes, `Marked as “${STATUS[status]}”`);
+  patchBook(changes, status ? `Marked as “${STATUS[status]}”` : "Status cleared");
 }
 
 function bindRating(el, book) {
@@ -773,7 +773,7 @@ async function openBookDialog(book = null) {
   bookForm.dataset.bookId = book ? book.id : "";
   $("#book-dialog-title").textContent = book ? "Edit book" : "Add a book";
   $(".new-only", bookForm).hidden = Boolean(book);
-  fillOptions($("#f-status"), STATUS, "to_read");
+  fillOptions($("#f-status"), { "": "No status", ...STATUS }, "");
   fillOptions($("#f-format"), FORMATS, "paperback");
   $("#f-owned").checked = !book;
   syncOwnedFields();
@@ -856,7 +856,7 @@ function bookPayload(isNew) {
     description: els.description.value.trim() || null,
   };
   if (isNew) {
-    payload.status = els.status.value;
+    payload.status = els.status.value || null;
     payload.favorite = els.favorite.checked;
     if (payload.status === "read") payload.finished_on = today();
     if (payload.status === "reading") payload.started_on = today();
@@ -1094,6 +1094,7 @@ function renderHelp() {
           <li>🏷️ Pick a <strong>status</strong>:
             <span class="pill">To read</span> <span class="pill status-reading">Reading</span>
             <span class="pill status-read">Read</span> <span class="pill status-abandoned">Abandoned</span>.
+            New books start with no status, and clicking the selected one again clears it.
             The <mark>start and finish dates are filled in for you</mark> when you start or finish a book.</li>
           <li>⭐ Give it a <strong>rating</strong> by clicking the stars. Half stars work too: click the left half of a star.</li>
           <li>❤️ Press <span class="help-btn">Add to favorites</span> to keep it on the <strong>Favorites</strong> tab.</li>
@@ -1286,7 +1287,9 @@ document.addEventListener("click", async (event) => {
 
   const statusButton = target.closest("[data-set-status]");
   if (statusButton) {
-    if (statusButton.dataset.setStatus !== state.book.status) setStatus(statusButton.dataset.setStatus);
+    // Clicking the active status again clears it: no status is the default.
+    const chosen = statusButton.dataset.setStatus;
+    setStatus(chosen === state.book.status ? null : chosen);
     return;
   }
 

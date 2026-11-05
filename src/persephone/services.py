@@ -373,8 +373,11 @@ def list_owners(session: Session) -> list[NameCount]:
     return [NameCount(name=name, count=count) for name, count in rows]
 
 
-def _counts(session: Session, column, model) -> dict[str, int]:
-    rows = session.execute(select(column, func.count()).select_from(model).group_by(column))
+def _counts(session: Session, column, model, where=None) -> dict[str, int]:
+    query = select(column, func.count()).select_from(model).group_by(column)
+    if where is not None:
+        query = query.where(where)
+    rows = session.execute(query)
     return {str(_value(key)): count for key, count in rows}
 
 
@@ -392,7 +395,7 @@ def stats(session: Session) -> Stats:
     )
 
     by_status = {status.value: 0 for status in Status}
-    by_status.update(_counts(session, Book.status, Book))
+    by_status.update(_counts(session, Book.status, Book, where=Book.status.is_not(None)))
 
     ratings = session.scalars(select(Book.rating).where(Book.rating.is_not(None)))
     rating_distribution = {f"{step / 2:g}": 0 for step in range(1, 11)}
@@ -518,7 +521,7 @@ def merge_book(
         for name in ("rating", "started_on", "finished_on", "review"):
             if getattr(data, name) is not None and getattr(book, name) is None:
                 assign(name, getattr(data, name))
-        if book.status == Status.TO_READ.value and data.status != Status.TO_READ:
+        if book.status is None and data.status is not None:
             assign("status", data.status)
         if data.favorite and not book.favorite:
             assign("favorite", True)

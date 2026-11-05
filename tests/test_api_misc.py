@@ -82,7 +82,7 @@ def test_stats(client, add_book):
     assert stats["average_rating"] == 4.5
     assert stats["pages_read"] == 1100
     assert stats["by_status"]["read"] == 3
-    assert stats["by_status"]["to_read"] == 1
+    assert stats["by_status"]["to_read"] == 0  # "D" has no status, which is not counted
     assert stats["rating_distribution"]["5"] == 1
     assert stats["rating_distribution"]["4.5"] == 1
     assert stats["rating_distribution"]["0.5"] == 0

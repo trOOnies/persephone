@@ -3,7 +3,7 @@ import datetime as dt
 import pytest
 from pydantic import ValidationError
 
-from persephone.schemas import BookCreate, BookUpdate, CopyUpdate, ImportSummary, Status
+from persephone.schemas import BookCreate, BookUpdate, CopyUpdate, ImportSummary
 
 
 def test_book_create_cleans_input():
@@ -19,7 +19,7 @@ def test_book_create_cleans_input():
     assert book.authors == ["Homer", "Emily Wilson"]
     assert book.tags == ["Epic", "Classics"]
     assert book.isbn == "9780140268867"
-    assert book.status is Status.TO_READ
+    assert book.status is None
     assert book.favorite is False
 
 
@@ -60,16 +60,17 @@ def test_update_only_tracks_sent_fields():
     assert update.model_dump(exclude_unset=True) == {"rating": 4}
 
 
-@pytest.mark.parametrize("field", ["title", "status", "favorite", "authors", "tags"])
+@pytest.mark.parametrize("field", ["title", "favorite", "authors", "tags"])
 def test_update_rejects_null_for_required_fields(field):
     with pytest.raises(ValidationError):
         BookUpdate(**{field: None})
 
 
 def test_update_allows_clearing_optional_fields():
-    assert BookUpdate(rating=None, isbn=None).model_dump(exclude_unset=True) == {
+    assert BookUpdate(rating=None, isbn=None, status=None).model_dump(exclude_unset=True) == {
         "rating": None,
         "isbn": None,
+        "status": None,
     }
 
 

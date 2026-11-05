@@ -164,7 +164,7 @@ class BookCreate(_BookFields):
     title: str = Field(min_length=1, max_length=500)
     authors: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
-    status: Status = Status.TO_READ
+    status: Status | None = None
     favorite: bool = False
     copies: list[CopyCreate] = Field(default_factory=list)
 
@@ -193,7 +193,7 @@ class BookUpdate(_BookFields):
     def _strip_title(cls, value: Any) -> Any:
         return " ".join(value.split()) if isinstance(value, str) else value
 
-    @field_validator("title", "status", "favorite", "authors", "tags")
+    @field_validator("title", "favorite", "authors", "tags")
     @classmethod
     def _not_null(cls, value: Any) -> Any:
         if value is None:
@@ -227,7 +227,7 @@ class BookOut(BaseModel):
     original_language: str | None
     original_year: int | None
     translator: str | None
-    status: Status
+    status: Status | None
     rating: float | None
     favorite: bool
     started_on: dt.date | None

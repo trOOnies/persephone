@@ -149,8 +149,10 @@ created. Backups can also be downloaded and restored from the *Backup* page.
 | `PERSEPHONE_OWNER` | `Me` | Owner of new copies when none is given |
 | `PERSEPHONE_OPENLIBRARY` | `1` | `0` disables ISBN lookups and Open Library covers |
 
-The schema is created automatically on start-up. There are no migrations yet:
-after a model change, export your data, delete the database and import it back.
+The schema is created automatically on start-up, new tables included, and older
+databases are upgraded where needed (for example to make a book's status
+optional). For other model changes, export your data, delete the database and
+import it back.
 
 ## Project layout
 

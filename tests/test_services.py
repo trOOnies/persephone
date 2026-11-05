@@ -90,3 +90,24 @@ def test_prune_orphans(session):
 def test_list_books_rejects_unknown_sort(session):
     with pytest.raises(ValueError):
         services.list_books(session, sort="price")
+
+
+def test_merge_fills_an_empty_status_only(session):
+    book = make(session, title="X")
+    assert book.status is None
+    services.merge_book(
+        session,
+        book,
+        BookCreate(title="X", status="reading"),
+        default_owner="Me",
+        overwrite_personal=False,
+    )
+    assert book.status == "reading"
+    services.merge_book(
+        session,
+        book,
+        BookCreate(title="X", status="read"),
+        default_owner="Me",
+        overwrite_personal=False,
+    )
+    assert book.status == "reading"

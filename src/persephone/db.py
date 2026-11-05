@@ -9,6 +9,7 @@ from pathlib import Path
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 
 class Base(DeclarativeBase):
@@ -41,6 +42,50 @@ def init_db(engine: Engine) -> None:
     from persephone import models  # noqa: F401  (registers the tables)
 
     Base.metadata.create_all(engine)
+    _upgrade(engine)
+
+
+def _upgrade(engine: Engine) -> None:
+    """Bring SQLite databases made by older versions up to date."""
+    if engine.dialect.name != "sqlite":
+        return
+    with engine.connect() as connection:
+        columns = {row[1]: row for row in connection.exec_driver_sql("PRAGMA table_info(books)")}
+    if columns["status"][3]:  # NOT NULL: books had to start as "to_read"
+        _rebuild_table(engine, "books")
+
+
+def _rebuild_table(engine: Engine, name: str) -> None:
+    """Recreate a table from its current model, keeping its rows.
+
+    SQLite cannot change a column's constraints in place. Foreign keys are off
+    while the old table is dropped, so rows that point to it are left alone.
+    """
+    table = Base.metadata.tables[name]
+    create = str(CreateTable(table).compile(engine)).strip()
+    create = create.replace(f"CREATE TABLE {name} ", f"CREATE TABLE {name}_new ", 1)
+    raw = engine.raw_connection()
+    try:
+        db = raw.driver_connection
+        old = {row[1] for row in db.execute(f"PRAGMA table_info({name})")}
+        shared = ", ".join(c.name for c in table.columns if c.name in old)
+        db.execute("PRAGMA foreign_keys=OFF")
+        try:
+            db.execute("BEGIN")
+            db.execute(create)
+            db.execute(f"INSERT INTO {name}_new ({shared}) SELECT {shared} FROM {name}")
+            db.execute(f"DROP TABLE {name}")
+            db.execute(f"ALTER TABLE {name}_new RENAME TO {name}")
+            for index in table.indexes:
+                db.execute(str(CreateIndex(index).compile(engine)))
+            db.execute("COMMIT")
+        except Exception:
+            db.execute("ROLLBACK")
+            raise
+        finally:
+            db.execute("PRAGMA foreign_keys=ON")
+    finally:
+        raw.close()
 
 
 def make_sessionmaker(engine: Engine) -> sessionmaker[Session]:
