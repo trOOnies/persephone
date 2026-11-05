@@ -197,3 +197,26 @@ def test_publishers_facet(client, add_book):
         {"name": "Ace", "count": 2, "origin": None, "year_created": None, "year_closed": None},
         {"name": "Tor", "count": 1, "origin": None, "year_created": None, "year_closed": None},
     ]
+
+
+def test_shutdown_stops_the_server_after_answering(app, client):
+    calls = []
+    app.state.shutdown = lambda: calls.append("stop")
+    response = client.post("/api/shutdown")
+    assert (response.status_code, response.json()) == (202, {"status": "stopping"})
+    assert calls == ["stop"]
+
+
+def test_stop_server_signals_itself_or_the_reloader(monkeypatch):
+    import os
+    import signal
+
+    from persephone import api
+
+    sent = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    monkeypatch.delenv(api.SUPERVISOR_PID_ENV, raising=False)
+    api.stop_server()
+    monkeypatch.setenv(api.SUPERVISOR_PID_ENV, "4242")
+    api.stop_server()
+    assert sent == [(os.getpid(), signal.SIGINT), (4242, signal.SIGINT)]

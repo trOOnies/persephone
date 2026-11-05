@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
+import signal
 from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+)
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -31,6 +42,9 @@ from persephone.schemas import (
 )
 
 router = APIRouter(prefix="/api")
+
+#: Set by ``persephone.web.main`` to the reloader's PID when running with ``--reload``.
+SUPERVISOR_PID_ENV = "PERSEPHONE_SUPERVISOR_PID"
 
 
 def get_session(request: Request) -> Iterator[Session]:
@@ -78,6 +92,25 @@ def _book_out(session: Session, book_id: int) -> BookOut:
 @router.get("/health", tags=["meta"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def stop_server() -> None:
+    """Stop the server as Ctrl+C would: uvicorn finishes the open requests, then exits.
+
+    With ``--reload`` the signal goes to the reloader, which stops its worker too.
+    """
+    pid = int(os.environ.get(SUPERVISOR_PID_ENV) or os.getpid())
+    os.kill(pid, signal.SIGINT)
+
+
+@router.post("/shutdown", status_code=202, tags=["meta"])
+def shutdown(request: Request, background: BackgroundTasks) -> dict[str, str]:
+    """Save and Exit: stop the Persephone server once this response is sent.
+
+    Every change is committed when its request finishes, so nothing is left to save.
+    """
+    background.add_task(getattr(request.app.state, "shutdown", None) or stop_server)
+    return {"status": "stopping"}
 
 
 @router.get("/config", response_model=AppConfig, tags=["meta"])

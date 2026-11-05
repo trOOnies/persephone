@@ -56,6 +56,7 @@ function icon(name) {
     edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    door: '<path d="M13 4h3a2 2 0 0 1 2 2v14"/><path d="M2 20h3"/><path d="M13 20h9"/><path d="M10 12v.01"/><path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561z"/>',
     back: '<path d="M15 18l-6-6 6-6"/>',
     x: '<path d="M6 6l12 12M18 6L6 18"/>',
     book: '<path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4V4z"/><path d="M5 16a4 4 0 0 1 4-4h10"/>',
@@ -1249,6 +1250,32 @@ function syncThemeButton() {
   button.title = `Switch to ${next} theme`;
 }
 
+// ------------------------------------------------------------ save & exit --
+
+async function saveAndExit() {
+  const ok = await confirmDialog(
+    "Save and exit Persephone? Everything you changed is already saved. This stops the app and closes this tab.",
+    "Save and Exit",
+  );
+  if (!ok) return;
+  try {
+    await api("/shutdown", { method: "POST" });
+  } catch (error) {
+    toast(error.message, { error: true });
+    return;
+  }
+  for (const button of document.querySelectorAll(".topbar button")) button.disabled = true;
+  setTitle("Closed");
+  view.dataset.view = "closed";
+  view.innerHTML = `
+    <div class="empty">
+      <h2>See you soon</h2>
+      <p>Persephone has stopped and your library is saved. If this tab stays open, you can close it.</p>
+    </div>`;
+  // Browsers only let a page close tabs that a script opened; otherwise this does nothing.
+  window.close();
+}
+
 // ------------------------------------------------------------------ events --
 
 document.addEventListener("click", async (event) => {
@@ -1342,6 +1369,7 @@ $("#f-isbn").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.pre
 bookForm.addEventListener("submit", submitBook);
 copyForm.addEventListener("submit", submitCopy);
 
+$("#save-exit").addEventListener("click", saveAndExit);
 $("#theme-toggle").addEventListener("click", () => {
   const next = effectiveTheme() === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = next;
