@@ -26,6 +26,12 @@ def test_frontend_is_served(client):
         assert client.get(asset).status_code == 200, asset
 
 
+def test_frontend_is_revalidated_on_every_load(client):
+    for path in ("/", "/static/app.js", "/static/app.css"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
+    assert "cache-control" not in client.get("/api/health").headers
+
+
 def test_openapi_schema(client):
     paths = client.get("/openapi.json").json()["paths"]
     assert "/api/books" in paths
