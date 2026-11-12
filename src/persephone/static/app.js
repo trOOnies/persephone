@@ -508,7 +508,7 @@ async function loadBooks(mode, params) {
   const withoutPage = (query) => { const p = new URLSearchParams(query); p.delete("page"); return p.toString(); };
   const turnedPage = previous?.mode === mode && previous.page !== page
     && withoutPage(previous.params) === withoutPage(params);
-  if (turnedPage) $(".result-meta", view)?.scrollIntoView({ block: "start" }); // also for the bottom pager
+  if (turnedPage) window.scrollTo(0, 0); // like a fresh page load, also for the bottom pager
 }
 
 function pageList(page, pages) {
