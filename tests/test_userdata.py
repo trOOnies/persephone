@@ -63,14 +63,15 @@ def test_export_for_one_owner(add_book, session):
 
 def test_round_trip_into_empty_library(add_book, session, tmp_path):
     add_book("A", authors=["X"], rating=3, tags=["t"], copies=[{"lent_to": "Hecate"}])
-    add_book("B", status="reading", started_on="2026-01-01")
+    add_book("B", status="reading", started_on="2026-01-01", copies=[{}])
+    add_book("C", wanted=True)
     payload = userdata.export_data(session)
     original_added = {b["title"]: b["added_at"] for b in payload["books"]}
 
     other = tmp_path / "other.db"
     with session_scope(open_database(f"sqlite:///{other}")) as fresh:
         summary = userdata.import_data(fresh, payload, default_owner="Me")
-        assert (summary.created, summary.updated, summary.errors) == (2, 0, [])
+        assert (summary.created, summary.updated, summary.errors) == (3, 0, [])
         assert userdata.export_data(fresh)["books"] == payload["books"]
         books = {b.title: b for b in fresh.scalars(select(Book)).unique()}
         assert books["A"].created_at.isoformat() == original_added["A"]

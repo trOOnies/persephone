@@ -76,15 +76,24 @@ def test_stats(client, add_book):
         tags=["myth"],
         copies=[{"format": "hardcover"}, {"owner": "Demeter", "lent_to": "Hecate"}],
     )
-    add_book("B", authors=["Ovid"], status="read", rating=4, pages=300, finished_on="2025-01-01")
-    add_book("C", status="read", rating=4.5, pages=100)
-    add_book("D", pages=999)
+    add_book(
+        "B",
+        authors=["Ovid"],
+        status="read",
+        rating=4,
+        pages=300,
+        finished_on="2025-01-01",
+        copies=[{"owner": "Me"}],
+    )
+    add_book("C", status="read", rating=4.5, pages=100, copies=[{"owner": "Me"}])
+    add_book("D", pages=999, wanted=True)
 
     stats = client.get("/api/stats").json()
     assert stats["total_books"] == 4
-    assert stats["owned_books"] == 1
-    assert stats["total_copies"] == 2
+    assert stats["owned_books"] == 3
+    assert stats["total_copies"] == 4
     assert stats["favorites"] == 1
+    assert stats["wanted_books"] == 1
     assert stats["rated"] == 3
     assert stats["average_rating"] == 4.5
     assert stats["pages_read"] == 1100
@@ -97,10 +106,10 @@ def test_stats(client, add_book):
     assert stats["read_per_year"] == [{"year": 2024, "count": 1}, {"year": 2025, "count": 1}]
     assert stats["copies_by_owner"] == [
         {"name": "Demeter", "count": 1},
-        {"name": "Me", "count": 1},
+        {"name": "Me", "count": 3},
     ]
     assert stats["copies_by_format"]["hardcover"] == 1
-    assert stats["copies_by_format"]["paperback"] == 1
+    assert stats["copies_by_format"]["paperback"] == 3
     assert stats["copies_by_format"]["ebook"] == 0
     assert stats["lent_out"] == 1
     assert stats["top_authors"] == [{"name": "Ovid", "count": 2}]

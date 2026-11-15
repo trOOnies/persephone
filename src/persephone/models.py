@@ -120,6 +120,8 @@ class Book(Base):
     status: Mapped[str | None] = mapped_column(String(20), index=True)  # None: not chosen yet
     rating: Mapped[float | None] = mapped_column(Float)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # Would like to get it. Only for books without copies: owning one clears it.
+    wanted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     started_on: Mapped[dt.date | None] = mapped_column(Date)
     finished_on: Mapped[dt.date | None] = mapped_column(Date)
     review: Mapped[str | None] = mapped_column(Text)
@@ -155,6 +157,13 @@ class Book(Base):
     @property
     def owned(self) -> bool:
         return bool(self.copies)
+
+    @property
+    def ownership(self) -> str | None:
+        """``owned`` (has copies), ``wanted`` or ``None``."""
+        if self.copies:
+            return "owned"
+        return "wanted" if self.wanted else None
 
 
 class Copy(Base):

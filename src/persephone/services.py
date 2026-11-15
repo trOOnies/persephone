@@ -54,7 +54,7 @@ CATALOG_FIELDS = (
 )
 AUTHOR_FIELDS = ("gender", "origin", "year_born", "year_deceased")
 PUBLISHER_FIELDS = ("origin", "year_created", "year_closed")
-PERSONAL_FIELDS = ("status", "rating", "favorite", "started_on", "finished_on", "review")
+PERSONAL_FIELDS = ("status", "rating", "favorite", "wanted", "started_on", "finished_on", "review")
 COPY_FIELDS = ("owner", "format", "location", "acquired_on", "lent_to", "notes")
 
 SortKey = Literal["shelf", "title", "author", "added", "updated", "rating", "year", "finished"]
@@ -143,7 +143,27 @@ def _new_copy(data: CopyCreate, default_owner: str) -> Copy:
     return Copy(owner=data.owner or default_owner, **fields)
 
 
-def create_book(session: Session, data: BookCreate, default_owner: str) -> Book:
+def sync_ownership(book: Book) -> None:
+    """Keep the two statuses consistent with the copies.
+
+    A book with copies is owned, so it is not wanted; one without copies has no
+    reading status (only owned books do).
+    """
+    if book.copies:
+        book.wanted = False
+    else:
+        book.status = None
+
+
+NOT_OWNED_STATUS = "only owned books have a reading status: add a copy first"
+
+
+def create_book(
+    session: Session, data: BookCreate, default_owner: str, *, strict: bool = True
+) -> Book:
+    """Add a book. ``strict`` refuses a reading status without copies instead of dropping it."""
+    if strict and data.status is not None and not data.copies:
+        raise ValueError(NOT_OWNED_STATUS)
     _ensure_isbn_free(session, data.isbn)
     book = Book(
         title=data.title,
@@ -153,14 +173,20 @@ def create_book(session: Session, data: BookCreate, default_owner: str) -> Book:
     set_authors(session, book, data.authors)
     set_tags(session, book, data.tags)
     book.copies = [_new_copy(copy, default_owner) for copy in data.copies]
+    sync_ownership(book)
     session.flush()
     return book
 
 
-def update_book(session: Session, book: Book, data: BookUpdate) -> Book:
+def update_book(session: Session, book: Book, data: BookUpdate, default_owner: str = "Me") -> Book:
     changes = data.model_dump(exclude_unset=True)
     authors = changes.pop("authors", None)
     tags = changes.pop("tags", None)
+    ownership = _value(changes.pop("ownership", book.ownership))
+
+    will_own = ownership == "owned"
+    if changes.get("status") is not None and not will_own:
+        raise ValueError(NOT_OWNED_STATUS)
 
     if "isbn" in changes and changes["isbn"] != book.isbn:
         _ensure_isbn_free(session, changes["isbn"], book.id)
@@ -172,6 +198,13 @@ def update_book(session: Session, book: Book, data: BookUpdate) -> Book:
 
     for name, value in changes.items():
         setattr(book, name, _value(value))
+    if ownership != book.ownership:
+        if will_own:
+            book.copies.append(Copy(owner=default_owner))
+        else:
+            book.copies.clear()  # delete-orphan removes them
+            book.wanted = ownership == "wanted"
+    sync_ownership(book)
     if authors is not None:
         set_authors(session, book, authors)
     if tags is not None:
@@ -193,6 +226,8 @@ class BookFilters:
     status: Status | None = None
     favorite: bool | None = None
     owned: bool | None = None
+    wanted: bool | None = None
+    series: str | None = None
     owner: str | None = None
     author: str | None = None
     tag: str | None = None
@@ -227,6 +262,10 @@ def _apply_filters(query: Select, f: BookFilters) -> Select:
     if f.owned is not None:
         has_copy = Book.copies.any()
         query = query.where(has_copy if f.owned else ~has_copy)
+    if f.wanted is not None:
+        query = query.where(Book.wanted.is_(f.wanted))
+    if f.series:
+        query = query.where(func.lower(Book.series) == f.series.lower())
     if f.owner:
         query = query.where(Book.copies.any(func.lower(Copy.owner) == f.owner.lower()))
     if f.lent is not None:
@@ -308,6 +347,7 @@ def get_copy(session: Session, copy_id: int) -> Copy:
 def add_copy(session: Session, book: Book, data: CopyCreate, default_owner: str) -> Copy:
     copy = _new_copy(data, default_owner)
     book.copies.append(copy)
+    sync_ownership(book)
     book.updated_at = utcnow()
     session.flush()
     return copy
@@ -322,8 +362,11 @@ def update_copy(session: Session, copy: Copy, data: CopyUpdate) -> Copy:
 
 
 def delete_copy(session: Session, copy: Copy) -> None:
-    copy.book.updated_at = utcnow()
-    session.delete(copy)
+    """Remove a copy. Removing the last one also clears the reading status."""
+    book = copy.book
+    book.updated_at = utcnow()
+    book.copies.remove(copy)  # delete-orphan removes it
+    sync_ownership(book)
     session.flush()
 
 
@@ -391,6 +434,7 @@ def stats(session: Session) -> Stats:
     owned = session.scalar(select(func.count(Book.id)).where(Book.copies.any())) or 0
     copies = session.scalar(select(func.count(Copy.id))) or 0
     favorites = session.scalar(select(func.count(Book.id)).where(Book.favorite)) or 0
+    wanted = session.scalar(select(func.count(Book.id)).where(Book.wanted)) or 0
     rated, average = session.execute(select(func.count(Book.rating), func.avg(Book.rating))).one()
     pages_read = (
         session.scalar(
@@ -429,6 +473,7 @@ def stats(session: Session) -> Stats:
         owned_books=owned,
         total_copies=copies,
         favorites=favorites,
+        wanted_books=wanted,
         rated=rated,
         average_rating=round(average, 2) if average is not None else None,
         pages_read=pages_read,
@@ -491,13 +536,15 @@ def merge_book(
     only fills gaps, so that re-running an import never undoes edits made in the app.
     """
     changed = False
+    # The statuses depend on the copies, so they are compared once those are merged.
+    statuses = (book.status, book.wanted)
 
     def assign(name: str, value) -> None:
         nonlocal changed
         value = _value(value)
         if getattr(book, name) != value:
             setattr(book, name, value)
-            changed = True
+            changed = changed or name not in ("status", "wanted")
 
     for name in CATALOG_FIELDS:
         value = getattr(data, name)
@@ -530,6 +577,8 @@ def merge_book(
             assign("status", data.status)
         if data.favorite and not book.favorite:
             assign("favorite", True)
+        if data.wanted and not book.wanted:
+            assign("wanted", True)
 
     def copy_key(owner: str, fmt: str, location: str | None) -> tuple[str, str, str]:
         return owner.casefold(), fmt, (location or "").casefold()
@@ -542,6 +591,10 @@ def merge_book(
         else:
             book.copies.append(_new_copy(copy, default_owner))
             changed = True
+
+    # Older exports and other apps may give a reading status to books nobody owns.
+    sync_ownership(book)
+    changed = changed or statuses != (book.status, book.wanted)
 
     if changed:
         book.updated_at = utcnow()
@@ -562,7 +615,7 @@ def upsert_book(
     """Create the book, or merge it into the matching stored book."""
     existing = find_existing(session, isbn=data.isbn, title=data.title, authors=data.authors)
     if existing is None:
-        return create_book(session, data, default_owner), "created"
+        return create_book(session, data, default_owner, strict=False), "created"
     changed = merge_book(
         session,
         existing,

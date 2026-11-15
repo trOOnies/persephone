@@ -53,7 +53,7 @@ def test_duplicate_isbn_conflicts(client, add_book):
 
 
 def test_update_book(client, add_book):
-    book = add_book("Odyssey", authors=["Homer"], tags=["epic"])
+    book = add_book("Odyssey", authors=["Homer"], tags=["epic"], copies=[{}])
     response = client.patch(
         f"/api/books/{book['id']}",
         json={
@@ -89,7 +89,7 @@ def test_update_can_clear_rating(client, add_book):
 
 
 def test_status_starts_empty_and_can_be_cleared(client, add_book):
-    book = add_book()
+    book = add_book(copies=[{}])
     assert book["status"] is None
     planned = client.patch(f"/api/books/{book['id']}", json={"status": "to_read"}).json()
     assert planned["status"] == "to_read"
@@ -160,10 +160,10 @@ def library(add_book):
         authors=["Frank Herbert"],
         isbn="9780441172719",
         publisher="Ace",
-        status="reading",
+        wanted=True,
         published_year=1965,
     )
-    add_book("Anonymous Ballads", status="abandoned", rating=2)
+    add_book("Anonymous Ballads", rating=2)
 
 
 def test_list_default_sort_is_title(client, library):
@@ -213,6 +213,11 @@ def test_shelf_sort_puts_favorites_then_owned_first(client, library, add_book):
         ({"favorite": False}, ["Anonymous Ballads", "Circe", "Dune"]),
         ({"owned": True}, ["Circe", "Metamorphoses"]),
         ({"owned": False}, ["Anonymous Ballads", "Dune"]),
+        ({"series": "GREEK RETELLINGS"}, ["Circe"]),
+        ({"series": "Greek"}, []),  # the whole name, not a part of it
+        ({"wanted": True}, ["Dune"]),
+        ({"wanted": False}, ["Anonymous Ballads", "Circe", "Metamorphoses"]),
+        ({"owned": False, "wanted": False}, ["Anonymous Ballads"]),
         ({"owner": "demeter"}, ["Circe"]),
         ({"lent": True}, ["Circe"]),
         ({"lent": False}, ["Anonymous Ballads", "Dune", "Metamorphoses"]),
@@ -259,3 +264,52 @@ def test_list_pagination(client, library):
     assert len(first["items"]) == 3
     assert [b["title"] for b in second["items"]] == ["Metamorphoses"]
     assert client.get("/api/books", params={"limit": 0}).status_code == 422
+
+
+def test_ownership_starts_empty(add_book):
+    book = add_book()
+    assert (book["ownership"], book["owned"], book["wanted"]) == (None, False, False)
+    assert add_book("Iliad", wanted=True)["ownership"] == "wanted"
+    # Copies make it owned, whatever "wanted" says.
+    owned = add_book("Aeneid", wanted=True, copies=[{}])
+    assert (owned["ownership"], owned["wanted"]) == ("owned", False)
+
+
+def test_reading_status_needs_a_copy(client, add_book):
+    response = client.post("/api/books", json={"title": "Dune", "status": "read"})
+    assert response.status_code == 422
+    book = add_book()
+    response = client.patch(f"/api/books/{book['id']}", json={"status": "reading"})
+    assert response.status_code == 422
+    assert "owned" in response.json()["detail"]
+    # Owning it and reading it in the same request is fine.
+    both = client.patch(
+        f"/api/books/{book['id']}", json={"ownership": "owned", "status": "reading"}
+    ).json()
+    assert (both["ownership"], both["status"]) == ("owned", "reading")
+
+
+def test_setting_ownership(client, add_book):
+    book = add_book()
+    url = f"/api/books/{book['id']}"
+    wanted = client.patch(url, json={"ownership": "wanted"}).json()
+    assert (wanted["ownership"], wanted["copies"]) == ("wanted", [])
+    owned = client.patch(url, json={"ownership": "owned"}).json()
+    assert (owned["ownership"], owned["wanted"]) == ("owned", False)
+    assert [c["owner"] for c in owned["copies"]] == ["Me"]  # the default owner
+    again = client.patch(url, json={"ownership": "owned", "status": "read"}).json()
+    assert len(again["copies"]) == 1  # no second copy
+    # Leaving "owned" removes the copies and the reading status.
+    cleared = client.patch(url, json={"ownership": None}).json()
+    assert (cleared["ownership"], cleared["status"], cleared["copies"]) == (None, None, [])
+
+
+def test_copies_drive_ownership(client, add_book):
+    book = add_book(wanted=True)
+    copy = client.post(f"/api/books/{book['id']}/copies", json={}).json()
+    client.patch(f"/api/books/{book['id']}", json={"status": "read"})
+    owned = client.get(f"/api/books/{book['id']}").json()
+    assert (owned["ownership"], owned["status"]) == ("owned", "read")
+    client.delete(f"/api/copies/{copy['id']}")
+    gone = client.get(f"/api/books/{book['id']}").json()
+    assert (gone["ownership"], gone["status"]) == (None, None)

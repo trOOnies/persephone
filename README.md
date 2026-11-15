@@ -46,7 +46,12 @@ are at <http://127.0.0.1:8000/docs>.
   wishlist). Adding a book you already own shows a warning but is allowed.
 - The library itself opens from the **Persephone** logo; there is no separate
   Library tab.
-- **Favorites** page and **Stats** (status counts, rating distribution, books
+- Two statuses per book: **ownership** (none, Wanted or Owned, where owned means
+  it has a copy) and, for owned books only, the **reading status** (none, To read,
+  Reading, Read, Abandoned). Favorites are separate and can be any book. The heart
+  and plus buttons on each cover mark favorites and wanted books, and the library
+  can be filtered by both.
+- **Stats** (status counts, rating distribution, books
   finished per year, top authors and tags, copies per owner and format).
 - **ISBN lookup** on [Open Library](https://openlibrary.org) to fill in the
   add-book form, plus Open Library covers for books that have an ISBN.

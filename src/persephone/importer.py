@@ -122,6 +122,14 @@ _STATUS_WORDS = {
 }
 
 
+_WANTED_WORDS = {"wanted", "wishlist", "wish list", "want to buy", "want-to-buy", "deseado"}
+
+
+def _wanted(value: Any) -> bool:
+    """Whether a shelf or status name means "would like to get it"."""
+    return (_text(value) or "").casefold() in _WANTED_WORDS
+
+
 def _status(value: Any) -> Status | None:
     text = (_text(value) or "").casefold()
     for status, words in _STATUS_WORDS.items():
@@ -207,6 +215,7 @@ def goodreads_record(row: dict[str, Any], owner: str | None = None) -> dict[str,
         "rating": _rating(row.get("My Rating")),
         "status": status.value if status else None,
         "favorite": bool(set(shelves) & _FAVORITE_SHELVES),
+        "wanted": _wanted(exclusive) or any(_wanted(shelf) for shelf in shelves),
         "finished_on": _date(row.get("Date Read")) if status == Status.READ else None,
         "review": review,
         "tags": tags,
@@ -242,6 +251,7 @@ GENERIC_COLUMNS: dict[str, tuple[str, ...]] = {
     "status": ("status", "shelf", "state", "estado"),
     "rating": ("rating", "my rating", "stars", "score"),
     "favorite": ("favorite", "favourite", "fav", "favorito"),
+    "wanted": ("wanted", "want", "wishlist", "deseado"),
     "tags": ("tags", "genres", "genre", "categories", "bookshelves", "género", "genero"),
     "started_on": ("started_on", "started", "date started", "start date"),
     "finished_on": ("finished_on", "finished", "date read", "date finished", "end date"),
@@ -313,6 +323,7 @@ def generic_record(row: dict[str, Any], owner: str | None = None) -> dict[str, A
         "status": status.value if status else None,
         "rating": _rating(row.get("rating")),
         "favorite": bool(_bool(row.get("favorite"))),
+        "wanted": bool(_bool(row.get("wanted"))) or _wanted(row.get("status")),
         "tags": _list(row.get("tags"), _TAG_SPLIT),
         "started_on": _date(row.get("started_on")),
         "finished_on": _date(row.get("finished_on")),

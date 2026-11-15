@@ -26,7 +26,7 @@ from persephone.schemas import (
     CartStatus,
     CartUpdate,
 )
-from persephone.services import ConflictError, NotFoundError
+from persephone.services import ConflictError, NotFoundError, sync_ownership
 
 OPEN, SAVED, BOUGHT = CartStatus.OPEN.value, CartStatus.SAVED.value, CartStatus.BOUGHT.value
 
@@ -163,6 +163,7 @@ def update_cart(session: Session, cart: Cart, data: CartUpdate) -> Cart:
 def _mark_not_owned(session: Session, cart: Cart) -> None:
     for item in cart.items:
         item.book.copies.clear()  # delete-orphan removes the copies
+        sync_ownership(item.book)
         item.book.updated_at = utcnow()
 
 
@@ -172,6 +173,7 @@ def _mark_owned(session: Session, cart: Cart, owner: str, today: dt.date) -> Non
             item.book.copies.append(
                 Copy(owner=owner, format="paperback", acquired_on=today, notes=f"Cart #{cart.id}")
             )
+            sync_ownership(item.book)
             item.book.updated_at = utcnow()
 
 

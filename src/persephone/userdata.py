@@ -63,6 +63,7 @@ _BOOK_KEYS = (
     "status",
     "rating",
     "favorite",
+    "wanted",
     "started_on",
     "finished_on",
     "review",

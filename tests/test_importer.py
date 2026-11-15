@@ -176,11 +176,11 @@ def test_goodreads_import(session, info):
     omens = books["Good Omens"]
     assert omens.authors == ["Terry Pratchett", "Neil Gaiman"]
     assert omens.rating is None
-    assert omens.status == "to_read"
+    assert omens.status is None  # nobody owns it, so it has no reading status
     assert omens.copies == []
     assert omens.tag_names == []
 
-    assert books["Ulysses"].status == "abandoned"
+    assert books["Ulysses"].status is None  # not owned either
 
 
 def test_goodreads_reimport_keeps_app_edits(session, info):
@@ -252,8 +252,10 @@ def test_generic_csv_import(session, info):
     assert [(c.owner, c.format, c.location) for c in rayuela.copies] == [
         ("Demeter", "hardcover", "Biblioteca")
     ]
-    # A finished date without a status means the book was read.
-    assert books["Ficciones"].status == "read"
+    # A finished date without a status means the book was read, but only owned
+    # books have a reading status.
+    assert books["Ficciones"].status is None
+    assert books["Ficciones"].finished_on == dt.date(2022, 1, 2)
     assert books["Ficciones"].copies == []
 
 
@@ -400,7 +402,7 @@ def test_yaml_import(session, info):
         ("Me", "ebook", None),
     ]
     assert books["Ficciones"].authors == ["Jorge Luis Borges"]
-    assert books["Ficciones"].status == "read"
+    assert books["Ficciones"].status is None  # not owned
     assert books["Ficciones"].copies == []
 
     again = importer.import_yaml(session, info, default_owner="Me")

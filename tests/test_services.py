@@ -57,7 +57,7 @@ def test_merge_copies_counts_duplicates(session):
 
 
 def test_merge_without_overwrite_only_fills_gaps(session):
-    book = make(session, title="A", rating=3, status="reading")
+    book = make(session, title="A", rating=3, status="reading", copies=[{}])
     data = BookCreate(title="A", rating=5, status="read", favorite=True, review="Nice")
     services.merge_book(session, book, data, default_owner="Me", overwrite_personal=False)
     assert book.rating == 3
@@ -93,7 +93,7 @@ def test_list_books_rejects_unknown_sort(session):
 
 
 def test_merge_fills_an_empty_status_only(session):
-    book = make(session, title="X")
+    book = make(session, title="X", copies=[{}])
     assert book.status is None
     services.merge_book(
         session,
@@ -111,3 +111,21 @@ def test_merge_fills_an_empty_status_only(session):
         overwrite_personal=False,
     )
     assert book.status == "reading"
+
+
+def test_create_refuses_a_status_without_copies(session):
+    with pytest.raises(ValueError, match="owned"):
+        make(session, title="X", status="read")
+    # Imports are lenient: the status is dropped.
+    book = services.create_book(session, BookCreate(title="X", status="read"), "Me", strict=False)
+    assert book.status is None
+
+
+def test_merge_drops_a_status_when_not_owned(session):
+    book = make(session, title="X", wanted=True)
+    data = BookCreate(title="X", status="read")
+    services.merge_book(session, book, data, default_owner="Me", overwrite_personal=True)
+    assert (book.status, book.wanted) == (None, False)
+    data = BookCreate(title="X", status="read", copies=[{}])
+    services.merge_book(session, book, data, default_owner="Me", overwrite_personal=True)
+    assert (book.status, book.ownership) == ("read", "owned")

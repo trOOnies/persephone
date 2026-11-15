@@ -37,7 +37,6 @@
       </a>
 
       <nav class="mainnav" aria-label="Sections">
-        <a href="#/favorites" data-nav="favorites">Favorites</a>
         <a href="#/budget" data-nav="budget">Budget</a>
         <a href="#/stats" data-nav="stats">Stats</a>
         <a href="#/data" data-nav="data">Backup</a>
@@ -156,18 +155,19 @@
         </div>
 
         <fieldset class="span-2 new-only">
-          <legend>Your copy</legend>
+          <legend>You and this book</legend>
           <div class="form-grid">
             <div class="field">
-              <label for="f-status">Status</label>
-              <select id="f-status" name="status"></select>
+              <label for="f-ownership">Ownership</label>
+              <select id="f-ownership" name="ownership"></select>
             </div>
             <label class="check">
               <input type="checkbox" name="favorite" id="f-favorite"> Favorite
             </label>
-            <label class="check span-2">
-              <input type="checkbox" name="owned" id="f-owned"> I own a copy
-            </label>
+            <div class="field owned-only span-2">
+              <label for="f-status">Reading status</label>
+              <select id="f-status" name="status"></select>
+            </div>
             <div class="field owned-only">
               <label for="f-format">Format</label>
               <select id="f-format" name="format"></select>

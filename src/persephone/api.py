@@ -157,6 +157,8 @@ def list_books(
     status: Status | None = None,
     favorite: bool | None = None,
     owned: bool | None = None,
+    wanted: bool | None = None,
+    series: Annotated[str | None, Query(description="Exact series name, any case")] = None,
     owner: str | None = None,
     author: str | None = None,
     tag: str | None = None,
@@ -172,6 +174,8 @@ def list_books(
         status=status,
         favorite=favorite,
         owned=owned,
+        wanted=wanted,
+        series=series,
         owner=owner,
         author=author,
         tag=tag,
@@ -201,6 +205,8 @@ def create_book(
         book = services.create_book(session, data, settings.default_owner)
     except services.ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     _save_covers_later(request, background, session, [book.id])
     return _book_out(session, book.id)
 
@@ -215,12 +221,13 @@ def update_book(
     book_id: int,
     data: BookUpdate,
     session: SessionDep,
+    settings: SettingsDep,
     request: Request,
     background: BackgroundTasks,
 ) -> BookOut:
     book = _book_or_404(session, book_id)
     try:
-        services.update_book(session, book, data)
+        services.update_book(session, book, data, settings.default_owner)
     except services.ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:

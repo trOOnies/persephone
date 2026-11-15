@@ -57,16 +57,27 @@ def _upgrade(engine: Engine) -> None:
 
 
 def _add_missing_columns(engine: Engine) -> None:
-    """Add new nullable columns to existing tables (``create_all`` only makes tables)."""
+    """Add new columns to existing tables (``create_all`` only makes tables).
+
+    Nullable columns, or NOT NULL ones with a server default to fill old rows.
+    """
     with engine.begin() as connection:
         for table in Base.metadata.sorted_tables:
             info = connection.exec_driver_sql(f"PRAGMA table_info({table.name})")
             have = {row[1] for row in info}
             for column in table.columns:
-                if column.name not in have and column.nullable:
-                    kind = column.type.compile(engine.dialect)
+                if column.name in have:
+                    continue
+                kind = column.type.compile(engine.dialect)
+                if column.nullable:
                     connection.exec_driver_sql(
                         f"ALTER TABLE {table.name} ADD COLUMN {column.name} {kind}"
+                    )
+                elif column.server_default is not None:
+                    default = column.server_default.arg
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE {table.name} ADD COLUMN {column.name} {kind} "
+                        f"NOT NULL DEFAULT {default}"
                     )
 
 

@@ -1,5 +1,7 @@
 // Persephone — a small, dependency-free single page app talking to /api.
 
+// Two statuses: ownership first, then (only for owned books) the reading status.
+const OWNERSHIP = { wanted: "Wanted", owned: "Owned" };
 const STATUS = { to_read: "To read", reading: "Reading", read: "Read", abandoned: "Abandoned" };
 const FORMATS = {
   hardcover: "Hardcover",
@@ -34,7 +36,7 @@ const storage = {
 const state = {
   config: { default_owner: "Me", openlibrary: true, version: "", currency: "$" },
   layout: storage.get("persephone.layout") || "grid",
-  library: null, // { mode, params, items, total }
+  library: null, // { params, items, total, page, pages }
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -58,6 +60,7 @@ function icon(name) {
     edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     door: '<path d="M13 4h3a2 2 0 0 1 2 2v14"/><path d="M2 20h3"/><path d="M13 20h9"/><path d="M10 12v.01"/><path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561z"/>',
     back: '<path d="M15 18l-6-6 6-6"/>',
     next: '<path d="M9 18l6-6-6-6"/>',
@@ -227,16 +230,33 @@ function bookCard(book) {
       </a>
       <div class="card-meta">
         ${book.rating ? `<span title="${esc(ratingText(book.rating))}">${starsHtml(book.rating, { size: "0.9rem" })}<span class="visually-hidden">${esc(ratingText(book.rating))}</span></span>` : ""}
+        ${book.wanted ? wantedPill() : ""}
         ${book.status ? statusPill(book.status) : ""}
         ${isLent(book) ? '<span class="pill lent">Lent</span>' : ""}
       </div>
+      ${ownButton(book)}
       ${favButton(book)}
     </article>`;
 }
 
+function wantedPill() {
+  return '<span class="pill status-wanted">Wanted</span>';
+}
+
+// The cover's ownership button loops: nothing -> Wanted -> Owned -> nothing.
+const NEXT_OWNERSHIP = { "": "wanted", wanted: "owned", owned: "" };
+
+function ownButton(book) {
+  const current = book.ownership || "";
+  const next = NEXT_OWNERSHIP[current];
+  const now = current ? OWNERSHIP[current] : "Not owned or wanted";
+  const label = `${now}. ${next ? `Mark “${book.title}” as ${OWNERSHIP[next].toLowerCase()}` : `Clear the ownership of “${book.title}”`}`;
+  return `<button type="button" class="card-btn own-btn" data-own="${book.id}" data-ownership="${current || "none"}" aria-label="${esc(label)}" title="${esc(now)}">${icon(current === "owned" ? "check" : "plus")}</button>`;
+}
+
 function favButton(book) {
   const label = book.favorite ? `Remove “${book.title}” from favorites` : `Add “${book.title}” to favorites`;
-  return `<button type="button" class="fav-btn" data-fav="${book.id}" aria-pressed="${book.favorite}" aria-label="${esc(label)}" title="${book.favorite ? "Favorite" : "Mark as favorite"}">${icon("heart")}</button>`;
+  return `<button type="button" class="card-btn fav-btn" data-fav="${book.id}" aria-pressed="${book.favorite}" aria-label="${esc(label)}" title="${book.favorite ? "Favorite" : "Mark as favorite"}">${icon("heart")}</button>`;
 }
 
 function bookRow(book) {
@@ -252,10 +272,11 @@ function bookRow(book) {
       <div class="row-authors">${esc(book.authors.join(", "))}</div>
       <div class="row-rating" title="${esc(ratingText(book.rating))}">${book.rating ? starsHtml(book.rating, { size: "0.85rem" }) : ""}</div>
       <div class="card-meta">
+        ${book.wanted ? wantedPill() : ""}
         ${book.status ? statusPill(book.status) : ""}
         ${book.owned ? `<span class="pill owned">${plural(book.copies.length, "copy", "copies")}</span>` : ""}
       </div>
-      ${favButton(book)}
+      <div class="row-actions">${ownButton(book)}${favButton(book)}</div>
     </article>`;
 }
 
@@ -267,9 +288,9 @@ function parseHash() {
   return { parts: path.split("/").filter(Boolean).map(decodeURIComponent), params: new URLSearchParams(query) };
 }
 
-function libraryHref(mode, params) {
+function libraryHref(params) {
   const qs = params.toString();
-  return `#/${mode === "favorites" ? "favorites" : ""}${qs ? `?${qs}` : ""}`;
+  return `#/${qs ? `?${qs}` : ""}`;
 }
 
 function setNav(section) {
@@ -286,11 +307,14 @@ function setTitle(text) {
 async function route() {
   const { parts, params } = parseHash();
   const [section = "library", id] = parts;
-  // The library grid uses the whole window; other pages keep a readable width.
-  document.documentElement.classList.toggle("is-wide", section === "library" || section === "favorites");
   try {
-    if (section === "library" || section === "favorites") {
-      await renderLibrary(section, params);
+    if (section === "favorites") {
+      // The old Favorites page is now the library's favorites filter.
+      params.set("fav", "1");
+      history.replaceState(null, "", libraryHref(params));
+      await renderLibrary(params);
+    } else if (section === "library") {
+      await renderLibrary(params);
     } else if (section === "book" && id) {
       await renderBookPage(Number(id));
     } else if (section === "budget") {
@@ -314,26 +338,25 @@ async function route() {
 
 // ----------------------------------------------------------------- library --
 
-async function renderLibrary(mode, params) {
-  setNav(mode);
-  setTitle(mode === "favorites" ? "Favorites" : "Library");
-  if (view.dataset.view !== `library-${mode}`) {
-    view.dataset.view = `library-${mode}`;
-    view.innerHTML = libraryShell(mode);
-    bindLibraryToolbar(mode);
+async function renderLibrary(params) {
+  setNav("library");
+  setTitle("Library");
+  if (view.dataset.view !== "library") {
+    view.dataset.view = "library";
+    view.innerHTML = libraryShell();
+    bindLibraryToolbar();
     loadFacets();
   }
   syncToolbar(params);
-  await loadBooks(mode, params);
+  await loadBooks(params);
 }
 
-function libraryShell(mode) {
-  const favorites = mode === "favorites";
+function libraryShell() {
   return `
     <div class="page-head">
       <div>
-        <h1>${favorites ? "Favorites" : "Library"}</h1>
-        <p class="lede">${favorites ? "The books you would carry back from the underworld." : "Every book you own, read, or dream of reading."}</p>
+        <h1>Library</h1>
+        <p class="lede">Every book you own, read, or dream of reading.</p>
         <span class="ornament" aria-hidden="true"></span>
       </div>
     </div>
@@ -350,17 +373,16 @@ function libraryShell(mode) {
         </select>
       </div>
       <div class="toolbar-row">
+        <label class="visually-hidden" for="filter-own">Ownership</label>
+        <select id="filter-own" name="own" class="select-compact">
+          <option value="">Owned or not</option>
+          ${Object.entries(OWN_FILTERS).map(([k, label]) => `<option value="${k}">${esc(label)}</option>`).join("")}
+        </select>
         <div class="chips" role="group" aria-label="Reading status">
           <button type="button" class="chip" data-status="">All</button>
           ${Object.entries(STATUS).map(([k, label]) => `<button type="button" class="chip" data-status="${k}">${esc(label)}</button>`).join("")}
         </div>
-        <label class="visually-hidden" for="filter-own">Ownership</label>
-        <select id="filter-own" name="own" class="select-compact">
-          <option value="">Owned or not</option>
-          <option value="owned">Owned</option>
-          <option value="not_owned">Not owned (wishlist)</option>
-          <option value="lent">Lent out</option>
-        </select>
+        <button type="button" class="chip chip-fav" data-filter-fav>${icon("heart")} Favorites</button>
         <label class="visually-hidden" for="filter-owner">Owner</label>
         <select id="filter-owner" name="owner" class="select-compact"><option value="">Any owner</option></select>
         <label class="visually-hidden" for="filter-tag">Tag</label>
@@ -380,33 +402,55 @@ function libraryShell(mode) {
     <nav class="pager pager-bottom" data-pager aria-label="Pages, bottom"></nav>`;
 }
 
+const OWN_FILTERS = { owned: "Owned", wanted: "Wanted", none: "Neither owned nor wanted", not_owned: "Not owned", lent: "Lent out" };
+
+function ownFilterQuery(own) {
+  return {
+    owned: own === "owned" || own === "lent" ? true : own === "not_owned" || own === "none" || own === "wanted" ? false : null,
+    wanted: own === "wanted" ? true : own === "none" ? false : null,
+    lent: own === "lent" ? true : null,
+  };
+}
+
+function matchesFilters(book, params) {
+  // Whether the book still belongs in the list after a change made from it.
+  const status = params.get("status");
+  const own = ownFilterQuery(params.get("own"));
+  return !(params.get("fav") && !book.favorite)
+    && !(status && status !== book.status)
+    && !(own.owned !== null && own.owned !== book.owned)
+    && !(own.wanted !== null && own.wanted !== book.wanted)
+    && !(own.lent && !isLent(book));
+}
+
 function currentParams() {
   return parseHash().params;
 }
 
-function updateParams(mode, changes, { replace = false } = {}) {
+function updateParams(changes, { replace = false } = {}) {
   const params = currentParams();
   if (!("page" in changes)) params.delete("page"); // a new search or filter starts at page 1
   for (const [key, value] of Object.entries(changes)) {
     if (value === null || value === undefined || value === "") params.delete(key);
     else params.set(key, value);
   }
-  const href = libraryHref(mode, params);
+  const href = libraryHref(params);
   if (replace) history.replaceState(null, "", href);
   else history.pushState(null, "", href);
   route();
 }
 
-function bindLibraryToolbar(mode) {
+function bindLibraryToolbar() {
   const search = $('input[name="q"]', view);
-  search.addEventListener("input", debounce(() => updateParams(mode, { q: search.value.trim() }, { replace: true }), 250));
-  $("#filter-sort", view).addEventListener("change", (e) => updateParams(mode, { sort: e.target.value === DEFAULT_SORT ? null : e.target.value, order: null }));
-  $("#filter-own", view).addEventListener("change", (e) => updateParams(mode, { own: e.target.value }));
-  $("#filter-owner", view).addEventListener("change", (e) => updateParams(mode, { owner: e.target.value }));
-  $("#filter-tag", view).addEventListener("change", (e) => updateParams(mode, { tag: e.target.value }));
+  search.addEventListener("input", debounce(() => updateParams({ q: search.value.trim() }, { replace: true }), 250));
+  $("#filter-sort", view).addEventListener("change", (e) => updateParams({ sort: e.target.value === DEFAULT_SORT ? null : e.target.value, order: null }));
+  $("#filter-own", view).addEventListener("change", (e) => updateParams({ own: e.target.value }));
+  $("#filter-owner", view).addEventListener("change", (e) => updateParams({ owner: e.target.value }));
+  $("#filter-tag", view).addEventListener("change", (e) => updateParams({ tag: e.target.value }));
   for (const chip of $$("[data-status]", view)) {
-    chip.addEventListener("click", () => updateParams(mode, { status: chip.dataset.status }));
+    chip.addEventListener("click", () => updateParams({ status: chip.dataset.status }));
   }
+  $("[data-filter-fav]", view).addEventListener("click", () => updateParams({ fav: currentParams().get("fav") ? null : "1" }));
   for (const button of $$("[data-layout]", view)) {
     button.addEventListener("click", () => {
       state.layout = button.dataset.layout;
@@ -416,7 +460,7 @@ function bindLibraryToolbar(mode) {
     });
   }
   $("#author-filter", view).addEventListener("click", (e) => {
-    if (e.target.closest("[data-clear-author]")) updateParams(mode, { author: null });
+    if (e.target.closest("[data-clear-author]")) updateParams({ author: null });
   });
 }
 
@@ -436,6 +480,7 @@ function syncToolbar(params) {
   for (const chip of $$("[data-status]", view)) {
     chip.setAttribute("aria-pressed", String(chip.dataset.status === (params.get("status") || "")));
   }
+  $("[data-filter-fav]", view).setAttribute("aria-pressed", String(Boolean(params.get("fav"))));
   const author = params.get("author");
   $("#author-filter", view).innerHTML = author
     ? `<button type="button" class="chip" aria-pressed="true" data-clear-author aria-label="Stop filtering by ${esc(author)}">${esc(author)} ${icon("x")}</button>`
@@ -466,7 +511,7 @@ function fillSelect(select, emptyLabel, items, selected) {
   setSelectValue(select, selected || "");
 }
 
-function apiQuery(mode, params, offset) {
+function apiQuery(params, offset) {
   const sort = SORTS[params.get("sort")] ? params.get("sort") : DEFAULT_SORT;
   const own = params.get("own");
   return {
@@ -475,9 +520,8 @@ function apiQuery(mode, params, offset) {
     owner: params.get("owner"),
     tag: params.get("tag"),
     author: params.get("author"),
-    favorite: mode === "favorites" ? true : null,
-    owned: own === "owned" ? true : own === "not_owned" ? false : null,
-    lent: own === "lent" ? true : null,
+    favorite: params.get("fav") ? true : null,
+    ...ownFilterQuery(own),
     sort,
     order: params.get("order") || SORTS[sort].order,
     limit: PAGE_SIZE,
@@ -491,22 +535,22 @@ function pageNumber(params) {
 }
 
 let loadToken = 0;
-async function loadBooks(mode, params) {
+async function loadBooks(params) {
   const token = ++loadToken;
   const page = pageNumber(params);
   const previous = state.library;
-  const result = await api("/books", { query: apiQuery(mode, params, (page - 1) * PAGE_SIZE) });
+  const result = await api("/books", { query: apiQuery(params, (page - 1) * PAGE_SIZE) });
   if (token !== loadToken) return; // a newer request superseded this one
   const pages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
   if (page > pages) {
     // Past the end (e.g. after books were removed): show the last page instead.
-    updateParams(mode, { page: pages > 1 ? pages : null }, { replace: true });
+    updateParams({ page: pages > 1 ? pages : null }, { replace: true });
     return;
   }
-  state.library = { mode, params: params.toString(), items: result.items, total: result.total, page, pages };
+  state.library = { params: params.toString(), items: result.items, total: result.total, page, pages };
   renderResults();
   const withoutPage = (query) => { const p = new URLSearchParams(query); p.delete("page"); return p.toString(); };
-  const turnedPage = previous?.mode === mode && previous.page !== page
+  const turnedPage = previous && previous.page !== page
     && withoutPage(previous.params) === withoutPage(params);
   if (turnedPage) window.scrollTo(0, 0); // like a fresh page load, also for the bottom pager
 }
@@ -524,12 +568,12 @@ function pageList(page, pages) {
   return out;
 }
 
-function pagerHtml(mode, params, page, pages) {
+function pagerHtml(params, page, pages) {
   if (pages <= 1) return "";
   const href = (p) => {
     const next = new URLSearchParams(params);
     if (p > 1) next.set("page", p); else next.delete("page");
-    return libraryHref(mode, next);
+    return libraryHref(next);
   };
   const step = (p, inner, rel, disabled) => disabled
     ? `<span class="pager-step" aria-disabled="true">${inner}</span>`
@@ -545,19 +589,19 @@ function pagerHtml(mode, params, page, pages) {
 }
 
 function hasFilters(params) {
-  return ["q", "status", "own", "owner", "tag", "author"].some((k) => params.get(k));
+  return ["q", "status", "fav", "own", "owner", "tag", "author"].some((k) => params.get(k));
 }
 
 function renderResults() {
   const results = $("#results", view);
   if (!results || !state.library) return;
-  const { mode, items, total, page, pages } = state.library;
+  const { items, total, page, pages } = state.library;
   const params = new URLSearchParams(state.library.params);
   const first = (page - 1) * PAGE_SIZE + 1;
   $("#result-count", view).textContent = !total ? ""
     : pages > 1 ? `${plural(total, "book")} · ${first}–${first + items.length - 1}` : plural(total, "book");
   // The same pager above and below the books.
-  const pager = pagerHtml(mode, params, page, pages);
+  const pager = pagerHtml(params, page, pages);
   for (const nav of $$("[data-pager]", view)) {
     nav.innerHTML = pager;
     nav.hidden = !pager;
@@ -566,10 +610,7 @@ function renderResults() {
   if (!items.length) {
     if (hasFilters(params)) {
       results.innerHTML = `<div class="empty"><h2>No books match</h2><p>Try a different search or filter.</p>
-        <a class="btn" href="${libraryHref(mode, new URLSearchParams())}">Clear filters</a></div>`;
-    } else if (mode === "favorites") {
-      results.innerHTML = `<div class="empty"><h2>No favorites yet</h2><p>Tap the heart on a book to keep it here.</p>
-        <a class="btn btn-primary" href="#/">Browse the library</a></div>`;
+        <a class="btn" href="${libraryHref(new URLSearchParams())}">Clear filters</a></div>`;
     } else {
       results.innerHTML = `<div class="empty"><h2>Your library is an empty field</h2>
         <p>Plant the first seed: add a book, or run <span class="code">make import</span> / <span class="code">make seed</span>.</p>
@@ -583,19 +624,51 @@ function renderResults() {
 }
 
 async function toggleFavorite(button) {
-  const id = Number(button.dataset.fav);
   const next = button.getAttribute("aria-pressed") !== "true";
+  await toggleBookFlag(button, Number(button.dataset.fav), { favorite: next },
+    (book) => (next ? `“${book.title}” added to favorites` : `“${book.title}” removed from favorites`));
+}
+
+async function cycleOwnership(button) {
+  const id = Number(button.dataset.own);
+  const book = state.library?.items.find((b) => b.id === id);
+  if (!book) return;
+  const next = NEXT_OWNERSHIP[book.ownership || ""];
+  if (!(await confirmLeavingOwned(book, next))) return;
+  await toggleBookFlag(button, id, { ownership: next || null }, (updated) => (
+    next === "owned" ? `“${updated.title}” is owned: added a copy for ${state.config.default_owner}`
+      : next === "wanted" ? `“${updated.title}” marked as wanted` : `“${updated.title}” is no longer owned`));
+}
+
+function isPlainCopy(copy) {
+  // The copy "Owned" adds by itself: nothing in it is worth asking about.
+  return copy.owner === state.config.default_owner && copy.format === "paperback"
+    && !copy.location && !copy.acquired_on && !copy.lent_to && !copy.notes;
+}
+
+async function confirmLeavingOwned(book, next) {
+  // Leaving "owned" removes the copies and the reading status: ask only if that loses something.
+  if (!book.owned || next === "owned") return true;
+  if (!book.status && book.copies.length === 1 && isPlainCopy(book.copies[0])) return true;
+  const copies = plural(book.copies.length, "copy", "copies");
+  const text = `This removes ${copies} of “${book.title}”${book.status ? ` and its reading status (“${STATUS[book.status]}”)` : ""}.`;
+  return confirmDialog(text, "Remove");
+}
+
+async function toggleBookFlag(button, id, changes, message) {
   button.disabled = true;
   try {
-    const book = await api(`/books/${id}`, { method: "PATCH", body: { favorite: next } });
+    const book = await api(`/books/${id}`, { method: "PATCH", body: changes });
     if (state.library) {
       state.library.items = state.library.items.map((b) => (b.id === id ? book : b));
     }
-    if (state.library?.mode === "favorites" && !next && view.dataset.view === "library-favorites") {
-      await loadBooks("favorites", currentParams()); // refill the page from the next one
-    } else if (view.dataset.view?.startsWith("library")) renderResults();
-    else renderBookDetail(book);
-    toast(next ? `“${book.title}” added to favorites` : `“${book.title}” removed from favorites`);
+    if (view.dataset.view === "library") {
+      // When the change takes the book out of the filtered list, refill the page.
+      const params = currentParams();
+      if (!matchesFilters(book, params)) await loadBooks(params);
+      else renderResults();
+    } else renderBookDetail(book);
+    toast(message(book));
   } catch (error) {
     toast(error.message, { error: true });
   } finally {
@@ -649,7 +722,7 @@ function renderBookDetail(book) {
   ].filter(([, v]) => v !== null && v !== undefined && v !== "");
 
   view.innerHTML = `
-    <a class="back-link" href="${esc(state.library ? libraryHref(state.library.mode, new URLSearchParams(state.library.params)) : "#/")}">${icon("back")} ${state.library?.mode === "favorites" ? "Favorites" : "Library"}</a>
+    <a class="back-link" href="${esc(state.library ? libraryHref(new URLSearchParams(state.library.params)) : "#/")}">${icon("back")} Library</a>
     <div class="detail">
       <aside class="detail-side">
         ${coverHtml(book)}
@@ -668,12 +741,22 @@ function renderBookDetail(book) {
           <p class="byline">by ${authors}</p>
           ${book.series ? `<p class="series">${esc(book.series)}${book.series_index != null ? `, book ${esc(book.series_index)}` : ""}</p>` : ""}
         </header>
+        ${book.series ? `<nav class="series-nav" aria-label="Other books in ${esc(book.series)}">${seriesNavHtml(book)}</nav>` : ""}
 
         <section class="panel" aria-labelledby="reading-title">
-          <div class="section-title"><h2 id="reading-title">Your reading</h2></div>
-          <div class="status-picker chips" role="group" aria-label="Reading status">
-            ${Object.entries(STATUS).map(([k, label]) => `<button type="button" class="chip" data-key="status-${k}" data-set-status="${k}" aria-pressed="${book.status === k}">${esc(label)}</button>`).join("")}
+          <div class="section-title"><h2 id="reading-title">Status</h2></div>
+          <div class="status-row">
+            <span class="status-label" id="ownership-label">Ownership</span>
+            <div class="status-picker chips" role="group" aria-labelledby="ownership-label">
+              ${pickerChips(OWNERSHIP, book.ownership, "ownership")}
+            </div>
           </div>
+          ${book.owned ? `<div class="status-row">
+            <span class="status-label" id="status-label">Reading</span>
+            <div class="status-picker chips" role="group" aria-labelledby="status-label">
+              ${pickerChips(STATUS, book.status, "status")}
+            </div>
+          </div>` : ""}
           <div class="rating-row" style="margin-top:16px">
             <span class="rating-input" role="slider" tabindex="0" data-key="rating" aria-label="Your rating"
               aria-valuemin="0" aria-valuemax="5" aria-valuenow="${book.rating || 0}" aria-valuetext="${esc(ratingText(book.rating))}">
@@ -712,7 +795,7 @@ function renderBookDetail(book) {
           </div>
           ${book.copies.length
             ? `<div class="copies">${book.copies.map(copyHtml).join("")}</div>`
-            : '<p class="muted" style="margin:0;color:var(--ink-muted)">Nobody owns this one yet. It lives on the wishlist.</p>'}
+            : '<p class="muted" style="margin:0;color:var(--ink-muted)">Nobody owns this one yet.</p>'}
         </section>
 
         <section class="panel" aria-labelledby="about-title">
@@ -729,7 +812,49 @@ function renderBookDetail(book) {
       </div>
     </div>`;
   bindRating($(".rating-input", view), book);
+  if (book.series && state.seriesNav?.key !== seriesKey(book)) loadSeriesNav(book);
   restoreFocus();
+}
+
+// ------------------------------------------------- series: previous / next --
+
+function seriesKey(book) {
+  return `${book.id}|${book.series}|${book.series_index}`;
+}
+
+function seriesNavHtml(book) {
+  const nav = state.seriesNav?.key === seriesKey(book) ? state.seriesNav : null;
+  if (!nav) return "";
+  const link = (other, rel) => {
+    if (!other) return '<span aria-hidden="true"></span>';
+    const number = other.series_index != null ? `Book ${other.series_index}` : rel === "prev" ? "Previous" : "Next";
+    return `<a class="series-link series-${rel}" href="#/book/${other.id}" rel="${rel}">
+      ${rel === "prev" ? icon("back") : ""}<span><small>${esc(number)}</small>${esc(other.title)}</span>${rel === "next" ? icon("next") : ""}</a>`;
+  };
+  return link(nav.prev, "prev") + link(nav.next, "next");
+}
+
+async function loadSeriesNav(book) {
+  const key = seriesKey(book);
+  let items;
+  try {
+    ({ items } = await api("/books", { query: { series: book.series, sort: "title", limit: 500 } }));
+  } catch { return; /* the page works without the links */ }
+  // Series order: by number (unnumbered ones last), then by title.
+  const rank = (b) => b.series_index ?? Number.MAX_VALUE;
+  items.sort((a, b) => rank(a) - rank(b)); // stable: equal numbers keep A-Z order
+  const at = items.findIndex((b) => b.id === book.id);
+  state.seriesNav = { key, prev: items[at - 1] || null, next: items[at + 1] || null };
+  const nav = $(".series-nav", view);
+  if (nav && state.book?.id === book.id) nav.innerHTML = seriesNavHtml(state.book);
+}
+
+const NONE_LABEL = "—";
+
+function pickerChips(options, current, kind) {
+  // Nothing pressed means no value; pressing the pressed chip again clears it.
+  return Object.entries(options).map(([k, label]) => `<button type="button" class="chip" data-key="${kind}-${k}"
+    data-set-${kind}="${k}" aria-pressed="${current === k}">${esc(label)}</button>`).join("");
 }
 
 function copyHtml(copy) {
@@ -764,6 +889,15 @@ async function patchBook(changes, successMessage) {
     renderBookDetail(book); // put the controls back the way they were
     return null;
   }
+}
+
+async function setOwnership(ownership) {
+  const book = state.book;
+  if ((book.ownership || "") === ownership) return;
+  if (!(await confirmLeavingOwned(book, ownership))) return;
+  const message = ownership === "owned" ? `Added a copy owned by ${state.config.default_owner}. Edit it under Copies.`
+    : ownership === "wanted" ? "Marked as wanted" : "Ownership cleared";
+  patchBook({ ownership: ownership || null }, message);
 }
 
 function setStatus(status) {
@@ -839,9 +973,9 @@ async function openBookDialog(book = null) {
   bookForm.dataset.bookId = book ? book.id : "";
   $("#book-dialog-title").textContent = book ? "Edit book" : "Add a book";
   $(".new-only", bookForm).hidden = Boolean(book);
-  fillOptions($("#f-status"), { "": "No status", ...STATUS }, "");
+  fillOptions($("#f-ownership"), { "": NONE_LABEL, ...OWNERSHIP }, "");
+  fillOptions($("#f-status"), { "": NONE_LABEL, ...STATUS }, "");
   fillOptions($("#f-format"), FORMATS, "paperback");
-  $("#f-owned").checked = !book;
   syncOwnedFields();
   $("#isbn-lookup").hidden = !state.config.openlibrary;
   setIsbnHint(state.config.openlibrary ? "Type an ISBN and look it up to fill in the details." : "");
@@ -861,7 +995,7 @@ async function openBookDialog(book = null) {
 }
 
 function syncOwnedFields() {
-  const owned = $("#f-owned").checked;
+  const owned = $("#f-ownership").value === "owned";
   for (const el of $$(".owned-only", bookForm)) el.hidden = !owned;
 }
 
@@ -922,11 +1056,13 @@ function bookPayload(isNew) {
     description: els.description.value.trim() || null,
   };
   if (isNew) {
-    payload.status = els.status.value || null;
+    const owned = els.ownership.value === "owned";
     payload.favorite = els.favorite.checked;
+    payload.wanted = els.ownership.value === "wanted";
+    payload.status = owned ? els.status.value || null : null;
     if (payload.status === "read") payload.finished_on = today();
     if (payload.status === "reading") payload.started_on = today();
-    payload.copies = els.owned.checked
+    payload.copies = owned
       ? [{ format: els.format.value, location: els.location.value.trim() || null }]
       : [];
   }
@@ -1284,6 +1420,7 @@ async function renderStats() {
     ["Owned", s.owned_books, ""],
     ["Copies", s.total_copies, ""],
     ["Favorites", s.favorites, "accent"],
+    ["Wanted", s.wanted_books, "gold"],
     ["Average rating", s.average_rating ?? "–", "gold"],
     ["Pages read", s.pages_read.toLocaleString(), ""],
     ["Lent out", s.lent_out, "accent"],
@@ -1407,23 +1544,29 @@ function renderHelp() {
           <li>Got the book nearby? Type the <strong>ISBN</strong> (the number above the barcode) and press
             <span class="help-btn">Look up</span>. ✨ The title, author, cover and more <mark>fill themselves in</mark>.</li>
           <li>No ISBN? No problem. Just type the <strong>title</strong>. It's the only thing you <em>must</em> fill in.</li>
-          <li>Tick <strong>“I own a copy”</strong> if it's on your shelf, then press <span class="help-btn">Save book</span>. 🎉</li>
+          <li>Set <strong>Ownership</strong> to <span class="pill">Owned</span> if it's on your shelf, or
+            <span class="pill status-wanted">Wanted</span> if you'd like to get it, then press <span class="help-btn">Save book</span>. 🎉</li>
         </ol>
-        <p class="help-callout tip">💡 <strong>Tip:</strong> books you <em>don't</em> own yet go to your
-          <mark>wishlist</mark> automatically. Perfect for “I want to buy this one”.</p>
+        <p class="help-callout tip">💡 <strong>Tip:</strong> in the library, tap the <strong>＋</strong> on a cover
+          to mark a book you don't own as <mark>Wanted</mark>. Perfect for “I want to buy this one”.</p>
       </section>
 
       <section class="help-section panel" id="help-reading">
         <h2>📖 Tracking your reading</h2>
         <p>Click any book to open its page. There you can:</p>
         <ul class="help-list">
-          <li>🏷️ Pick a <strong>status</strong>:
+          <li>📦 Pick its <strong>ownership</strong>: <span class="pill status-wanted">Wanted</span>
+            or <span class="pill">Owned</span>. Owned means you have at least one copy: choosing it adds one for you,
+            and leaving it removes the copies (it asks first if you'd lose anything).</li>
+          <li>🏷️ Owned books also get a <strong>reading status</strong>:
             <span class="pill">To read</span> <span class="pill status-reading">Reading</span>
             <span class="pill status-read">Read</span> <span class="pill status-abandoned">Abandoned</span>.
-            New books start with no status, and clicking the selected one again clears it.
+            Books start with none of these. Click a selected one again to unselect it.
             The <mark>start and finish dates are filled in for you</mark> when you start or finish a book.</li>
           <li>⭐ Give it a <strong>rating</strong> by clicking the stars. Half stars work too: click the left half of a star.</li>
-          <li>❤️ Press <span class="help-btn">Add to favorites</span> to keep it on the <strong>Favorites</strong> tab.</li>
+          <li>❤️ Press <span class="help-btn">Add to favorites</span> (or tap the heart on its cover in the library). The <span class="help-btn">Favorites</span> filter shows only those.</li>
+          <li>➕ The round button in a cover's top left corner cycles its ownership: plain <strong>＋</strong> (nothing),
+            green <strong>＋</strong> (<span class="pill status-wanted">Wanted</span>), green <strong>✓</strong> (<span class="pill">Owned</span>), and round again.</li>
           <li>📝 Write a <strong>review or notes</strong>, then press <span class="help-btn">Save notes</span>.</li>
           <li>✏️ Fix any detail (title, tags, cover…) with <span class="help-btn">Edit</span>.</li>
           <li>🖼️ Covers are <strong>saved on your computer</strong>, so they don't disappear if a website removes them.</li>
@@ -1448,7 +1591,7 @@ function renderHelp() {
         <ul class="help-list">
           <li>🔤 The <strong>search box</strong> looks through titles, authors, series, publishers and ISBNs.</li>
           <li>🔢 Books are listed with your <strong>favorites first</strong>, then the ones you own, then the rest, each in A–Z order. Pick another order in the menu next to the search box.</li>
-          <li>🎛️ Narrow the list by <strong>status</strong>, <strong>owned / wishlist / lent out</strong>,
+          <li>🎛️ Narrow the list by <strong>status</strong>, <strong>favorites</strong>, <strong>owned / wanted / lent out</strong>,
             <strong>owner</strong> or <strong>tag</strong>.</li>
           <li>↕️ Change the <strong>order</strong>: title, author, rating, year, recently added…</li>
           <li>🖼️ Switch between <span class="help-btn">Covers</span> and <span class="help-btn">List</span> views.</li>
@@ -1677,9 +1820,18 @@ document.addEventListener("click", async (event) => {
   const fav = target.closest("[data-fav]");
   if (fav) { event.preventDefault(); toggleFavorite(fav); return; }
 
+  const own = target.closest("[data-own]");
+  if (own) { event.preventDefault(); cycleOwnership(own); return; }
+
+  const ownershipButton = target.closest("[data-set-ownership]");
+  if (ownershipButton) {
+    const chosen = ownershipButton.dataset.setOwnership;
+    setOwnership(chosen === state.book.ownership ? "" : chosen); // pressed again: back to nothing
+    return;
+  }
+
   const statusButton = target.closest("[data-set-status]");
   if (statusButton) {
-    // Clicking the active status again clears it: no status is the default.
     const chosen = statusButton.dataset.setStatus;
     setStatus(chosen === state.book.status ? null : chosen);
     return;
@@ -1702,7 +1854,11 @@ document.addEventListener("click", async (event) => {
 
   const deleteCopy = target.closest("[data-delete-copy]");
   if (deleteCopy) {
-    if (!(await confirmDialog("Delete this copy? The book stays in your library."))) return;
+    const last = state.book.copies.length === 1;
+    const text = last
+      ? `Delete the last copy? The book stays in your library, but it won't be owned any more${state.book.status ? " and loses its reading status" : ""}.`
+      : "Delete this copy? The book stays in your library.";
+    if (!(await confirmDialog(text))) return;
     try {
       await api(`/copies/${deleteCopy.dataset.deleteCopy}`, { method: "DELETE" });
       renderBookDetail(await api(`/books/${state.book.id}`));
@@ -1731,7 +1887,7 @@ document.addEventListener("click", async (event) => {
 document.addEventListener("change", (event) => {
   const dateInput = event.target.closest("[data-date]");
   if (dateInput) patchBook({ [dateInput.dataset.date]: dateInput.value || null }, "Date saved");
-  if (event.target.id === "f-owned") syncOwnedFields();
+  if (event.target.id === "f-ownership") syncOwnedFields();
 });
 
 document.addEventListener("submit", (event) => {

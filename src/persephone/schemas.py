@@ -18,7 +18,16 @@ from pydantic import (
 from persephone import isbn as isbn_utils
 
 
+class Ownership(str, Enum):
+    """Whether you have the book. ``None`` (the default) is neither."""
+
+    WANTED = "wanted"  # would like to get it
+    OWNED = "owned"  # at least one copy
+
+
 class Status(str, Enum):
+    """Reading status. Only owned books have one."""
+
     TO_READ = "to_read"
     READING = "reading"
     READ = "read"
@@ -166,6 +175,7 @@ class BookCreate(_BookFields):
     tags: list[str] = Field(default_factory=list)
     status: Status | None = None
     favorite: bool = False
+    wanted: bool = Field(default=False, description="Ignored when the book has copies")
     copies: list[CopyCreate] = Field(default_factory=list)
 
     @field_validator("title", mode="before")
@@ -187,6 +197,13 @@ class BookUpdate(_BookFields):
     tags: list[str] | None = None
     status: Status | None = None
     favorite: bool | None = None
+    ownership: Ownership | None = Field(
+        default=None,
+        description=(
+            "owned adds a copy (with the default owner) if there is none; wanted or null "
+            "removes every copy and clears the reading status"
+        ),
+    )
 
     @field_validator("title", mode="before")
     @classmethod
@@ -236,7 +253,9 @@ class BookOut(BaseModel):
     started_on: dt.date | None
     finished_on: dt.date | None
     review: str | None
+    ownership: Ownership | None
     owned: bool
+    wanted: bool
     copies: list[CopyOut]
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -324,6 +343,7 @@ class Stats(BaseModel):
     owned_books: int
     total_copies: int
     favorites: int
+    wanted_books: int
     rated: int
     average_rating: float | None
     pages_read: int
