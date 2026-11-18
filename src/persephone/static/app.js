@@ -824,7 +824,11 @@ async function confirmLeavingOwned(book, next) {
 }
 
 async function toggleBookFlag(button, id, changes, message) {
-  button.disabled = true;
+  if (button.getAttribute("aria-disabled") === "true") return; // still saving the last click
+  // aria-disabled, not disabled: disabling the focused button drops focus to the page.
+  button.setAttribute("aria-disabled", "true");
+  const hadFocus = document.activeElement === button;
+  const selector = button.hasAttribute("data-fav") ? `[data-fav="${id}"]` : `[data-own="${id}"]`;
   try {
     const book = await api(`/books/${id}`, { method: "PATCH", body: changes });
     if (state.library) {
@@ -840,7 +844,12 @@ async function toggleBookFlag(button, id, changes, message) {
   } catch (error) {
     toast(error.message, { error: true });
   } finally {
-    button.disabled = false;
+    button.removeAttribute("aria-disabled");
+    // The update re-rendered the button: keep focus on its replacement, or on
+    // the page when the book left the filtered list.
+    if (hadFocus && !button.isConnected && !view.contains(document.activeElement)) {
+      ($(selector, view) || view).focus({ preventScroll: true });
+    }
   }
 }
 

@@ -303,6 +303,7 @@ a:hover { color: var(--accent); }
 .btn:hover { --btn-bg: var(--surface-sunk); color: var(--btn-ink); }
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn[aria-disabled="true"], .card-btn[aria-disabled="true"] { cursor: progress; }
 
 .btn-primary { --btn-bg: var(--primary); --btn-ink: var(--primary-ink); --btn-border: transparent; }
 .btn-primary:hover { --btn-bg: var(--primary-hover); }
