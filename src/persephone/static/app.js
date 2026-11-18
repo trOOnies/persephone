@@ -165,12 +165,80 @@ function toast(message, { error = false } = {}) {
   toastTimer = setTimeout(() => { el.hidden = true; }, error ? 6000 : 2800);
 }
 
+// ---------------------------------------------------------------- dialogs --
+
+// Can this browser keep a closing dialog in the top layer while it fades out
+// (transitions on overlay and display)? Firefox parses allow-discrete without
+// animating display, so probe it. Checked lazily: it needs document.body.
+let topLayerExit;
+function supportsTopLayerExit() {
+  if (topLayerExit !== undefined) return topLayerExit;
+  topLayerExit = false;
+  if (CSS.supports("overlay", "auto") && CSS.supports("transition-behavior", "allow-discrete")) {
+    const probe = document.createElement("div");
+    // !important beats the reduced-motion reset; the shorthand is fine in a probe.
+    probe.style.cssText = "transition: display 1s allow-discrete !important; display: block;";
+    document.body.append(probe);
+    getComputedStyle(probe).display;
+    probe.style.display = "none";
+    topLayerExit = getComputedStyle(probe).display === "block";
+    probe.remove();
+  }
+  return topLayerExit;
+}
+
+function openDialog(dialog) {
+  dialog.removeAttribute("data-closing"); // reopened while fading out
+  if (!dialog.open) dialog.showModal();
+}
+
+// Close with the exit fade. Where the browser can't animate it, run the fade
+// with [data-closing] while the dialog is still open, then close it.
+async function closeDialog(dialog, returnValue) {
+  if (!dialog?.open || dialog.hasAttribute("data-closing")) return;
+  if (!supportsTopLayerExit()) {
+    dialog.setAttribute("data-closing", "");
+    const animations = dialog.getAnimations({ subtree: true });
+    if (animations.length) {
+      await Promise.race([
+        Promise.allSettled(animations.map((a) => a.finished)),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
+    }
+    if (!dialog.hasAttribute("data-closing")) return; // reopened meanwhile
+    dialog.removeAttribute("data-closing");
+  }
+  dialog.close(returnValue);
+}
+
+for (const dialog of $$("dialog.dialog")) {
+  // Esc (and native light dismiss) go through the same fade.
+  dialog.addEventListener("cancel", (event) => { event.preventDefault(); closeDialog(dialog); });
+}
+
+const confirmEl = $("#confirm-dialog");
+// Its buttons submit a method="dialog" form, which would close it instantly.
+$("form", confirmEl).addEventListener("submit", (event) => {
+  event.preventDefault();
+  closeDialog(confirmEl, event.submitter?.value ?? "");
+});
+// closedby="any" light dismiss, for browsers without it (Safari). A backdrop
+// click targets the dialog itself, and lands outside its box.
+if (!("closedBy" in HTMLDialogElement.prototype)) {
+  confirmEl.addEventListener("click", (event) => {
+    if (event.target !== confirmEl) return;
+    const r = confirmEl.getBoundingClientRect();
+    const inside = r.top <= event.clientY && event.clientY <= r.bottom && r.left <= event.clientX && event.clientX <= r.right;
+    if (!inside) closeDialog(confirmEl);
+  });
+}
+
 function confirmDialog(text, okLabel = "Delete") {
   const dialog = $("#confirm-dialog");
   $("#confirm-text", dialog).textContent = text;
   $("#confirm-ok", dialog).textContent = okLabel;
   dialog.returnValue = "";
-  dialog.showModal();
+  openDialog(dialog);
   return new Promise((resolve) => {
     dialog.addEventListener("close", () => resolve(dialog.returnValue === "ok"), { once: true });
   });
@@ -992,7 +1060,7 @@ async function openBookDialog(book = null) {
     bookForm.elements.authors.value = book.authors.join(", ");
     bookForm.elements.tags.value = book.tags.join(", ");
   }
-  bookDialog.showModal();
+  openDialog(bookDialog);
   (book ? $("#f-title") : $("#f-isbn")).focus();
   try {
     const authors = await api("/authors");
@@ -1090,7 +1158,7 @@ async function submitBook(event) {
     const book = id
       ? await api(`/books/${id}`, { method: "PATCH", body: payload })
       : await api("/books", { method: "POST", body: payload });
-    bookDialog.close();
+    closeDialog(bookDialog);
     toast(id ? "Book updated" : `“${book.title}” added to the library`);
     if (id && view.dataset.view === "book") renderBookDetail(book);
     else location.hash = `#/book/${book.id}`;
@@ -1118,7 +1186,7 @@ async function openCopyDialog(copy = null) {
   els.acquired_on.value = copy?.acquired_on || "";
   els.lent_to.value = copy?.lent_to || "";
   els.notes.value = copy?.notes || "";
-  copyDialog.showModal();
+  openDialog(copyDialog);
   try {
     const owners = await api("/owners");
     $("#owners-list").innerHTML = owners.map((o) => `<option value="${esc(o.name)}"></option>`).join("");
@@ -1141,7 +1209,7 @@ async function submitCopy(event) {
   try {
     if (id) await api(`/copies/${id}`, { method: "PATCH", body: payload });
     else await api(`/books/${state.book.id}/copies`, { method: "POST", body: payload });
-    copyDialog.close();
+    closeDialog(copyDialog);
     toast(id ? "Copy updated" : "Copy added");
     renderBookDetail(await api(`/books/${state.book.id}`));
   } catch (error) {
@@ -1871,7 +1939,7 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  if (target.closest("[data-close]")) { target.closest("dialog")?.close(); return; }
+  if (target.closest("[data-close]")) { closeDialog(target.closest("dialog")); return; }
 
   const editCopy = target.closest("[data-edit-copy]");
   if (editCopy) { openCopyDialog(state.book.copies.find((c) => c.id === Number(editCopy.dataset.editCopy))); return; }

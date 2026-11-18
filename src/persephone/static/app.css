@@ -1165,10 +1165,41 @@ td.money { padding-top: 15px; text-align: right; }
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-lg);
+
+  /* Closed (and closing) state. display and overlay keep it in the top layer while it fades out. */
+  opacity: 0;
+  transition-property: opacity, translate, display, overlay;
+  transition-duration: 0.18s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete; /* separate, so the shorthand can't reset it */
 }
 .dialog-sm { width: min(480px, calc(100vw - 32px)); }
-.dialog::backdrop { background: rgba(8, 19, 12, 0.6); backdrop-filter: blur(2px); }
-.dialog[open] { animation: rise 0.18s ease-out; }
+.dialog::backdrop {
+  background-color: rgba(8, 19, 12, 0);
+  backdrop-filter: blur(0);
+  transition-property: background-color, backdrop-filter, display, overlay;
+  transition-duration: 0.18s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+/* [data-closing] is set by closeDialog() where the browser can't animate the exit on its own. */
+.dialog[open]:where(:not([data-closing])) {
+  opacity: 1;
+  @starting-style { opacity: 0; }
+
+  &::backdrop {
+    background-color: rgba(8, 19, 12, 0.6);
+    backdrop-filter: blur(2px);
+    @starting-style { background-color: rgba(8, 19, 12, 0); backdrop-filter: blur(0); }
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dialog { translate: 0 8px; }
+  .dialog[open]:where(:not([data-closing])) {
+    translate: none;
+    @starting-style { translate: 0 8px; }
+  }
+}
 .dialog form { display: flex; flex-direction: column; max-height: calc(100vh - 50px); }
 .dialog-head {
   display: flex;
@@ -1188,7 +1219,6 @@ td.money { padding-top: 15px; text-align: right; }
   border-top: 1px solid var(--line);
   background: var(--surface-2);
 }
-@keyframes rise { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* ------------------------------------------------------------------ toast -- */
 
@@ -1236,4 +1266,11 @@ td.money { padding-top: 15px; text-align: right; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
+  /* Dialogs still fade, briefly and without moving, so they don't just pop in and out. */
+  .dialog, .dialog::backdrop {
+    transition-property: opacity, background-color, display, overlay !important;
+    transition-duration: 0.1s !important;
+    transition-timing-function: ease-out !important;
+    transition-behavior: allow-discrete !important;
+  }
 }
