@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <script>
+    // Apply a pinned theme before the first paint to avoid a flash; no stored value follows the system.
+    try {
+      const theme = localStorage.getItem("persephone.theme");
+      if (theme === "light" || theme === "dark") document.querySelector('meta[name="color-scheme"]').content = theme;
+    } catch (_) { /* storage unavailable: follow the system */ }
+  </script>
   <title>Persephone</title>
   <link rel="icon" href="/static/favicon.svg?v=2" type="image/svg+xml">
   <link rel="stylesheet" href="/static/app.css">
-  <script>
-    // Apply the saved theme before the first paint to avoid a flash.
-    try {
-      const theme = localStorage.getItem("persephone.theme");
-      if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
-    } catch (_) { /* storage unavailable: follow the system */ }
-  </script>
   <script type="module" src="/static/app.js"></script>
 </head>
 <body>

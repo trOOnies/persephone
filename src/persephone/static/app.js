@@ -31,6 +31,9 @@ const storage = {
   set(key, value) {
     try { localStorage.setItem(key, value); } catch { /* storage unavailable */ }
   },
+  remove(key) {
+    try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
+  },
 };
 
 const state = {
@@ -175,7 +178,8 @@ function confirmDialog(text, okLabel = "Delete") {
 
 // ------------------------------------------------------------- rendering --
 
-function coverHtml(book) {
+// lazy: off for covers likely in the first screen; high: the page's main (LCP) cover.
+function coverHtml(book, { lazy = true, high = false } = {}) {
   const variant = hashString(book.title) % 6;
   // The downloaded copy first; the online one only until it has been saved.
   const src = book.local_cover
@@ -190,7 +194,7 @@ function coverHtml(book) {
         <div class="cover-seed"></div>
         <div class="cover-author">${esc(book.authors[0] || "")}</div>
       </div>
-      ${src ? `<img src="${esc(src)}" alt="" loading="lazy" decoding="async" data-cover style="position:relative">` : ""}
+      ${src ? `<img src="${esc(src)}" alt=""${high ? ' fetchpriority="high"' : lazy ? ' loading="lazy"' : ""} decoding="async" data-cover style="position:relative">` : ""}
     </div>`;
 }
 
@@ -219,12 +223,14 @@ function isLent(book) {
   return book.copies.some((c) => c.lent_to);
 }
 
-function bookCard(book) {
+const EAGER_COVERS = 10; // about the first screen of the grid (one 10-column row) or list
+
+function bookCard(book, index = Infinity) {
   const authors = book.authors.join(", ") || "Unknown author";
   return `
     <article class="card" data-book="${book.id}">
       <a class="card-link" href="#/book/${book.id}">
-        ${coverHtml(book)}
+        ${coverHtml(book, { lazy: index >= EAGER_COVERS })}
         <h3 class="card-title" style="margin-top:10px">${esc(book.title)}</h3>
         <p class="card-authors">${esc(authors)}</p>
       </a>
@@ -259,12 +265,12 @@ function favButton(book) {
   return `<button type="button" class="card-btn fav-btn" data-fav="${book.id}" aria-pressed="${book.favorite}" aria-label="${esc(label)}" title="${book.favorite ? "Favorite" : "Mark as favorite"}">${icon("heart")}</button>`;
 }
 
-function bookRow(book) {
+function bookRow(book, index = Infinity) {
   const sub = [book.subtitle, book.series && `${book.series}${book.series_index != null ? ` #${book.series_index}` : ""}`, book.published_year]
     .filter(Boolean).join(" · ");
   return `
     <article class="row" data-book="${book.id}">
-      ${coverHtml(book)}
+      ${coverHtml(book, { lazy: index >= EAGER_COVERS })}
       <div style="min-width:0">
         <a class="row-title" href="#/book/${book.id}">${esc(book.title)}</a>
         ${sub ? `<div class="row-sub">${esc(sub)}</div>` : ""}
@@ -725,7 +731,7 @@ function renderBookDetail(book) {
     <a class="back-link" href="${esc(state.library ? libraryHref(new URLSearchParams(state.library.params)) : "#/")}">${icon("back")} Library</a>
     <div class="detail">
       <aside class="detail-side">
-        ${coverHtml(book)}
+        ${coverHtml(book, { high: true })}
         <div class="actions">
           <button type="button" class="btn fav-toggle" data-key="fav" data-fav="${book.id}" aria-pressed="${book.favorite}">
             ${icon("heart")} ${book.favorite ? "Favorite" : "Add to favorites"}
@@ -1773,9 +1779,37 @@ async function importFile(file) {
 
 // ------------------------------------------------------------------- theme --
 
+const THEME_KEY = "persephone.theme";
+const schemeMeta = document.querySelector('meta[name="color-scheme"]');
+
+function systemTheme() {
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+// The pinned theme ("light" / "dark") or, when nothing is pinned, the system's.
 function effectiveTheme() {
-  return document.documentElement.dataset.theme
-    || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const pinned = schemeMeta.content;
+  return pinned === "light" || pinned === "dark" ? pinned : systemTheme();
+}
+
+function applyStoredTheme() {
+  const stored = storage.get(THEME_KEY);
+  schemeMeta.content = stored === "light" || stored === "dark" ? stored : "light dark";
+  syncThemeButton();
+}
+
+// Switch to the opposite of what is shown. Choosing the system's own scheme
+// un-pins, so the app follows the OS again; a pin is only judged when set.
+function toggleTheme() {
+  const next = effectiveTheme() === "dark" ? "light" : "dark";
+  if (next === systemTheme()) {
+    storage.remove(THEME_KEY);
+    schemeMeta.content = "light dark";
+  } else {
+    storage.set(THEME_KEY, next);
+    schemeMeta.content = next;
+  }
+  syncThemeButton();
 }
 
 function syncThemeButton() {
@@ -1916,18 +1950,20 @@ document.addEventListener("keydown", (event) => {
 
 $("#add-book").addEventListener("click", () => openBookDialog());
 $("#isbn-lookup").addEventListener("click", lookupIsbn);
-$("#f-isbn").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); lookupIsbn(); } });
+$("#f-isbn").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  if (e.isComposing || e.keyCode === 229) return; // Enter confirming an IME composition
+  lookupIsbn();
+});
 bookForm.addEventListener("submit", submitBook);
 copyForm.addEventListener("submit", submitCopy);
 
 $("#save-exit").addEventListener("click", saveAndExit);
-$("#theme-toggle").addEventListener("click", () => {
-  const next = effectiveTheme() === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  storage.set("persephone.theme", next);
-  syncThemeButton();
-});
+$("#theme-toggle").addEventListener("click", toggleTheme);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncThemeButton);
+// Another tab changed the theme (or cleared storage).
+window.addEventListener("storage", (e) => { if (e.key === THEME_KEY || e.key === null) applyStoredTheme(); });
 
 // Fires for back/forward and for links to a new #hash (pushState calls route() itself).
 window.addEventListener("popstate", route);

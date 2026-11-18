@@ -66,11 +66,14 @@
   --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
-  color-scheme: light;
+  /* Follow the system; the theme toggle pins a scheme through <meta name="color-scheme">. */
+  color-scheme: light dark;
+
+  &:has(> head > meta[name="color-scheme"][content="light"]) { color-scheme: light; }
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) {
     --bg: #0d1711;
     --bg-pattern: rgba(143, 191, 157, 0.03);
     --surface: #142019;
@@ -110,7 +113,7 @@
   }
 }
 
-:root[data-theme="dark"] {
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
   --bg: #0d1711;
   --bg-pattern: rgba(143, 191, 157, 0.03);
   --surface: #142019;
@@ -476,7 +479,7 @@ input[type="checkbox"] {
   min-height: 0;
   accent-color: var(--accent);
 }
-input:invalid:not(:placeholder-shown):not(:focus) { border-color: var(--accent); }
+input:user-invalid { border-color: var(--accent); }
 
 .field { display: grid; gap: 4px; min-width: 0; }
 .field[hidden] { display: none; }
