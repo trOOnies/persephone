@@ -155,15 +155,60 @@ async function api(path, { method = "GET", body, query } = {}) {
 
 // ------------------------------------------------------------------- toast --
 
+// A manual popover: in the top layer, so above everything, and only closed by
+// its button or the timer. Errors stay until dismissed; other messages hide
+// after a moment, but not while the pointer or focus is on the toast.
+const toastEl = $("#toast");
 let toastTimer;
-function toast(message, { error = false } = {}) {
-  const el = $("#toast");
-  el.textContent = message;
-  el.classList.toggle("is-error", error);
-  el.hidden = false;
+let toastError = false;
+let toastReturnFocus = null;
+
+function scheduleToastHide(ms) {
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, error ? 6000 : 2800);
+  if (!toastError) toastTimer = setTimeout(() => toastEl.hidePopover(), ms);
 }
+
+function announce(message) {
+  if (document.ariaNotify) { document.ariaNotify(message); return; }
+  const live = $("#toast-announcer");
+  live.textContent = "";
+  setTimeout(() => { live.textContent = message; }, 50);
+}
+
+function toast(message, { error = false } = {}) {
+  // Behind a modal it would be inert and easily missed: wait until it closes.
+  const modal = $("dialog[open]");
+  if (modal) {
+    modal.addEventListener("close", () => toast(message, { error }), { once: true });
+    return;
+  }
+  $(".toast-text", toastEl).textContent = message;
+  toastEl.classList.toggle("is-error", error);
+  toastError = error;
+  if (!toastEl.matches(":popover-open")) toastEl.showPopover();
+  announce(error ? `Error: ${message}` : message);
+  if (!toastEl.matches(":hover, :focus-within")) scheduleToastHide(2800);
+  else clearTimeout(toastTimer);
+}
+
+toastEl.addEventListener("mouseenter", () => clearTimeout(toastTimer));
+toastEl.addEventListener("mouseleave", () => { if (!toastEl.matches(":focus-within")) scheduleToastHide(2000); });
+toastEl.addEventListener("focusin", (event) => {
+  if (!toastEl.contains(event.relatedTarget)) toastReturnFocus = event.relatedTarget;
+  clearTimeout(toastTimer);
+});
+toastEl.addEventListener("focusout", (event) => {
+  if (!toastEl.contains(event.relatedTarget) && !toastEl.matches(":hover")) scheduleToastHide(2000);
+});
+// Closing with focus inside (its button): give focus back to where it was.
+toastEl.addEventListener("beforetoggle", (event) => {
+  if (event.newState !== "closed") return;
+  clearTimeout(toastTimer);
+  if (toastEl.contains(document.activeElement)) {
+    (toastReturnFocus?.isConnected ? toastReturnFocus : view).focus({ preventScroll: true });
+  }
+  toastReturnFocus = null;
+});
 
 // ---------------------------------------------------------------- dialogs --
 
@@ -410,19 +455,65 @@ async function route() {
   }
 }
 
+// -------------------------------------------------------- view transitions --
+
+function coverIn(bookId) {
+  return view.dataset.view === "book"
+    ? $(".detail-side .cover", view)
+    : $(`[data-book="${bookId}"] .cover`, view);
+}
+
+// Swap the page (library <-> book) in a view transition: the page cross-fades,
+// and with a bookId that book's cover morphs between the card and the book
+// page. The data must be fetched already, as the page is frozen during update.
+async function swapView(update, { bookId } = {}) {
+  const hadView = Boolean(view.dataset.view); // false on the first load
+  const done = () => {
+    // The clicked link is gone: move focus to the new page, not the document.
+    if (hadView && (!document.activeElement || document.activeElement === document.body)) view.focus({ preventScroll: true });
+  };
+  if (!document.startViewTransition || !hadView) {
+    update();
+    done();
+    return;
+  }
+  const name = (el) => { if (el) el.style.viewTransitionName = "book-cover"; return el; };
+  const from = bookId != null ? name(coverIn(bookId)) : null;
+  let to = null;
+  const transition = document.startViewTransition(() => {
+    update(); // replaces `from`, so the name is never on two elements
+    if (from) to = name(coverIn(bookId));
+  });
+  transition.finished.finally(() => {
+    if (to) to.style.viewTransitionName = "";
+    done();
+  });
+  await transition.updateCallbackDone;
+}
+
 // ----------------------------------------------------------------- library --
 
 async function renderLibrary(params) {
   setNav("library");
   setTitle("Library");
-  if (view.dataset.view !== "library") {
-    view.dataset.view = "library";
-    view.innerHTML = libraryShell();
-    bindLibraryToolbar();
-    loadFacets();
+  if (view.dataset.view === "library") {
+    // A filter, search or page change: only the results update.
+    syncToolbar(params);
+    await loadBooks(params);
+    return;
   }
-  syncToolbar(params);
-  await loadBooks(params);
+  // Arriving from another page: fetch first, then swap in the whole page.
+  const fromBook = view.dataset.view === "book" ? state.book?.id : undefined;
+  await loadBooks(params, {
+    paint: (fill) => swapView(() => {
+      view.dataset.view = "library";
+      view.innerHTML = libraryShell();
+      bindLibraryToolbar();
+      loadFacets();
+      syncToolbar(params);
+      fill();
+    }, { bookId: fromBook }),
+  });
 }
 
 function libraryShell() {
@@ -609,7 +700,8 @@ function pageNumber(params) {
 }
 
 let loadToken = 0;
-async function loadBooks(params) {
+// paint(fill) wraps the results update, e.g. in a page swap.
+async function loadBooks(params, { paint = (fill) => fill() } = {}) {
   const token = ++loadToken;
   const page = pageNumber(params);
   const previous = state.library;
@@ -621,8 +713,10 @@ async function loadBooks(params) {
     updateParams({ page: pages > 1 ? pages : null }, { replace: true });
     return;
   }
-  state.library = { params: params.toString(), items: result.items, total: result.total, page, pages };
-  renderResults();
+  await paint(() => {
+    state.library = { params: params.toString(), items: result.items, total: result.total, page, pages };
+    renderResults();
+  });
   const withoutPage = (query) => { const p = new URLSearchParams(query); p.delete("page"); return p.toString(); };
   const turnedPage = previous && previous.page !== page
     && withoutPage(previous.params) === withoutPage(params);
@@ -754,17 +848,22 @@ async function toggleBookFlag(button, id, changes, message) {
 
 async function renderBookPage(id) {
   setNav(null);
-  view.dataset.view = "book";
-  view.innerHTML = '<p class="loading">Fetching the book…</p>';
+  const hash = location.hash;
   let book;
   try {
-    book = await api(`/books/${id}`);
+    book = await api(`/books/${id}`); // before the swap, so the cover can morph
   } catch (error) {
+    if (location.hash !== hash) return;
+    view.dataset.view = "book";
     view.innerHTML = `<div class="empty"><h2>Book not found</h2><p>${esc(error.message)}</p><a class="btn btn-primary" href="#/">Back to the library</a></div>`;
     return;
   }
-  renderBookDetail(book);
-  window.scrollTo(0, 0);
+  if (location.hash !== hash) return; // went somewhere else meanwhile
+  await swapView(() => {
+    view.dataset.view = "book";
+    renderBookDetail(book);
+    window.scrollTo(0, 0);
+  }, { bookId: id });
 }
 
 function rememberFocus() {

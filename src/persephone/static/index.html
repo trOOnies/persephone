@@ -247,6 +247,15 @@
     </form>
   </dialog>
 
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div role="region" aria-label="Notifications">
+    <div id="toast" class="toast" popover="manual">
+      <p class="toast-text"></p>
+      <button type="button" class="btn btn-icon btn-sm btn-ghost-light toast-close" popovertarget="toast" popovertargetaction="hide" aria-label="Dismiss notification">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <!-- Announces toasts where document.ariaNotify() is missing. -->
+  <p id="toast-announcer" class="visually-hidden" aria-live="polite"></p>
 </body>
 </html>

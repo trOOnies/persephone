@@ -1222,22 +1222,47 @@ td.money { padding-top: 15px; text-align: right; }
 
 /* ------------------------------------------------------------------ toast -- */
 
+/* A popover="manual": the UA centers popovers, so reset inset and margin. */
 .toast {
   position: fixed;
-  left: 50%;
-  bottom: 22px;
+  inset: auto auto 22px 50%;
+  margin: 0;
   transform: translateX(-50%);
   background: var(--green-900);
   color: #f7efdc;
+  border: 0;
   border-left: 4px solid var(--red-500);
-  padding: 10px 16px;
+  padding: 6px 6px 6px 16px;
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
-  z-index: 50;
   max-width: calc(100vw - 32px);
   font-size: 0.95rem;
+
+  opacity: 0;
+  transition-property: opacity, translate, display, overlay;
+  transition-duration: 0.18s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
 }
+.toast:popover-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 1;
+  @starting-style { opacity: 0; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .toast { translate: 0 8px; }
+  .toast:popover-open { translate: none; @starting-style { translate: 0 8px; } }
+}
+.toast-text { margin: 0; }
+.toast-close { flex: none; }
 .toast.is-error { background: var(--red-800); border-left-color: var(--gold-500); }
+
+/* ------------------------------------------------------- page transitions -- */
+
+/* swapView() names the cover it morphs between a card and the book page. */
+::view-transition-group(book-cover) { animation-duration: 0.3s; }
 
 /* ------------------------------------------------------------- responsive -- */
 
@@ -1266,6 +1291,7 @@ td.money { padding-top: 15px; text-align: right; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
   /* Dialogs still fade, briefly and without moving, so they don't just pop in and out. */
   .dialog, .dialog::backdrop {
     transition-property: opacity, background-color, display, overlay !important;
